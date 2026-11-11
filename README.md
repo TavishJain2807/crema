@@ -36,7 +36,7 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 ### Docker (recommended)
 
 ```bash
-git clone https://github.com/yourname/crema.git
+git clone https://github.com/TavishJain2807/crema.git
 cd crema
 cp .env.example .env      # set CREMA_ADMIN_EMAIL to your own address
 docker compose up -d --build
@@ -51,7 +51,7 @@ Data lives in `./data` next to `docker-compose.yml`. Back that directory up and 
 Requires Python 3.10 or newer.
 
 ```bash
-git clone https://github.com/yourname/crema.git
+git clone https://github.com/TavishJain2807/crema.git
 cd crema
 
 python3 -m venv .venv

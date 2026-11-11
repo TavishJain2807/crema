@@ -1,7 +1,6 @@
 services:
   crema:
     build: .
-    # image: ghcr.io/yourname/crema:latest
     container_name: crema
     restart: unless-stopped
     ports:
