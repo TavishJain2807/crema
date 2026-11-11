@@ -1,0 +1,7 @@
+# Caddy will obtain and renew the TLS certificate for you.
+# Replace the hostname, then: sudo caddy reload --config /etc/caddy/Caddyfile
+
+coffee.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8787
+}

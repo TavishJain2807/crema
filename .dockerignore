@@ -1,0 +1,16 @@
+.git
+.gitignore
+data
+docs
+__pycache__
+*.pyc
+.venv
+venv
+.env
+.env.*
+*.bak*
+.DS_Store
+README.md
+CONTRIBUTING.md
+SECURITY.md
+LICENSE

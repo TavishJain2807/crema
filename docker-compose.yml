@@ -1,0 +1,13 @@
+services:
+  crema:
+    build: .
+    # image: ghcr.io/yourname/crema:latest
+    container_name: crema
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      CREMA_ADMIN_EMAIL: ${CREMA_ADMIN_EMAIL:-}
+      CREMA_PDF_FOOTER: ${CREMA_PDF_FOOTER:-Made at home · Crema}
+    volumes:
+      - ./data:/data

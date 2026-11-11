@@ -1,0 +1,50 @@
+{
+  "name": "Crema — Coffee Journal",
+  "short_name": "Crema",
+  "id": "/",
+  "description": "A quiet place to keep track of every shot, bag of beans, and cup worth remembering.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f5eee3",
+  "theme_color": "#f5eee3",
+  "categories": ["food", "lifestyle", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Log a shot",
+      "short_name": "Log shot",
+      "url": "/#/log",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "History",
+      "short_name": "History",
+      "url": "/#/history",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
