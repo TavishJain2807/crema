@@ -25,7 +25,7 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 ## Features
 
 - **Espresso, milk drinks, filter, cold brew.** Dose, yield, ratio, time, grind, temperature, pressure, pre-infusion, machine, grinder, basket.
-- **Brew timer with dial-in advice.** Start it as the pump kicks in; stopping it fills in shot time. The notes under it read dose, yield, and time together and suggest a grind change or a yield correction in plain words.
+- **Brew timer with dial-in advice.** Pick a style — ristretto, single, double, lungo — and the target time, dose, and yield set themselves to match. Start it as the pump kicks in; stopping it fills in shot time. The notes underneath measure the shot against that style and suggest a grind change or a yield correction in plain words.
 - **Tasting notes that stay useful.** Rating, free-text notes, flavour tags, and five balance sliders (acidity, body, sweetness, bitterness, aftertaste).
 - **Photos.** Attach one photo per shot — the cup, the bag, or the dial-in.
 - **Your own profile picture.** Upload it from settings; it appears in the sidebar and stays on your own disk.

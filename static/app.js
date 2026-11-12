@@ -104,48 +104,99 @@
   }
 
   // Turns the three numbers people actually know (dose, yield, time) into
-  // plain advice they can act on before the next shot.
+  // plain advice they can act on before the next shot. A style (ristretto,
+  // single, double, lungo) moves the windows that advice is measured against.
   var ESPRESSO_METHODS = ["espresso", "latte", "cappuccino", "flat white"];
 
-  function dialInNotes(doseValue, yieldValue, timeValue, method) {
+  var ESPRESSO_STYLES = [
+    { id: "ristretto", label: "Ristretto", dose: 18, yield: 24, time: 22,
+      ratio: [1.15, 1.6], window: [18, 28], flow: 1.1 },
+    { id: "single", label: "Single", dose: 9, yield: 18, time: 25,
+      ratio: [1.8, 2.2], window: [22, 32], flow: 0.72 },
+    { id: "double", label: "Double", dose: 18, yield: 36, time: 28,
+      ratio: [1.8, 2.2], window: [25, 32], flow: 1.3 },
+    { id: "lungo", label: "Lungo", dose: 18, yield: 50, time: 38,
+      ratio: [2.5, 3.5], window: [32, 45], flow: 1.3 }
+  ];
+
+  function styleById(id) {
+    for (var i = 0; i < ESPRESSO_STYLES.length; i++) {
+      if (ESPRESSO_STYLES[i].id === id) return ESPRESSO_STYLES[i];
+    }
+    return null;
+  }
+
+  function styleRecipe(style) {
+    if (!style) return "Choose a style to set the target and starting recipe.";
+    var r = style.yield / style.dose;
+    return style.label + " · " + style.dose + "g in · " + style.yield + "g out · 1:" +
+      (r >= 10 ? Math.round(r) : r.toFixed(1)) + " · about " + style.time + "s";
+  }
+
+  function dialInNotes(doseValue, yieldValue, timeValue, method, styleId) {
     var dose = parseFloat(doseValue);
     var yieldG = parseFloat(yieldValue);
     var time = parseFloat(timeValue);
     var notes = [];
     var isEspresso = ESPRESSO_METHODS.indexOf(method || "espresso") !== -1;
     var ratioValue = dose > 0 && yieldG > 0 ? yieldG / dose : null;
+    var style = styleById(styleId);
+
+    function ratioLabel(value) {
+      return "1:" + (value >= 10 ? Math.round(value) : value.toFixed(1));
+    }
 
     if (!isEspresso) {
       if (ratioValue !== null) {
-        var label = "1:" + (ratioValue >= 10 ? Math.round(ratioValue) : ratioValue.toFixed(1));
-        if (ratioValue < 12) notes.push({ kind: "warn", text: "That is " + label + " — strong for filter. Most pour-over lands around 1:15 to 1:17." });
-        else if (ratioValue > 18) notes.push({ kind: "warn", text: label + " is thin for filter. Try 1:15 to 1:17 and taste again." });
-        else notes.push({ kind: "ok", text: label + " sits in the usual filter range." });
+        var filterRatio = ratioLabel(ratioValue);
+        if (ratioValue < 12) notes.push({ kind: "warn", text: "That is " + filterRatio + " — strong for filter. Most pour-over lands around 1:15 to 1:17." });
+        else if (ratioValue > 18) notes.push({ kind: "warn", text: filterRatio + " is thin for filter. Try 1:15 to 1:17 and taste again." });
+        else notes.push({ kind: "ok", text: filterRatio + " sits in the usual filter range." });
       }
       return notes;
     }
 
+    // With no style chosen, fall back to the classic 1:2 double.
+    var lowRatio = style ? style.ratio[0] : 1.7;
+    var highRatio = style ? style.ratio[1] : 2.4;
+    var lowTime = style ? style.window[0] : 25;
+    var highTime = style ? style.window[1] : 32;
+    var article = style ? "a " + style.label.toLowerCase() : "an espresso";
+    var aim = "1:" + lowRatio + "–" + highRatio;
+    var doseNote = style
+      ? " — " + style.dose + "g in to " + Math.round(style.dose * lowRatio) + "–" + Math.round(style.dose * highRatio) + "g out"
+      : "";
+
     if (ratioValue !== null) {
-      if (ratioValue < 1.7) notes.push({ kind: "warn", text: "Yield is 1:" + ratioValue.toFixed(1) + " — short of the 1:2 baseline. Expect a syrupy, under-extracted shot; let it run longer." });
-      else if (ratioValue > 2.4) notes.push({ kind: "warn", text: "Yield is 1:" + ratioValue.toFixed(1) + " — long for a double. It usually tastes thin and bitter; stop a little earlier." });
-      else notes.push({ kind: "ok", text: "Yield is 1:" + ratioValue.toFixed(1) + ", close to the classic 1:2." });
+      var shotRatio = ratioLabel(ratioValue);
+      if (ratioValue < lowRatio) {
+        notes.push({ kind: "warn", text: shotRatio + " is short for " + article + " (" + aim + doseNote + "). Let it run longer; short shots taste sharp and thin." });
+      } else if (ratioValue > highRatio) {
+        notes.push({ kind: "warn", text: shotRatio + " is long for " + article + " (" + aim + doseNote + "). Stop a little earlier; long shots turn watery and bitter." });
+      } else {
+        notes.push({ kind: "ok", text: shotRatio + " is where " + article + " should land (" + aim + ")." });
+      }
     }
 
     if (time > 0) {
-      if (time < 20) notes.push({ kind: "warn", text: time.toFixed(1) + "s is a fast shot. Grind finer in small steps and keep the dose steady." });
-      else if (time > 32) notes.push({ kind: "warn", text: time.toFixed(1) + "s is slow. Grind coarser a notch; if it still stalls, check for channeling." });
-      else if (time >= 25 && time <= 30) notes.push({ kind: "ok", text: time.toFixed(1) + "s sits right in the 25–30s window." });
-      else notes.push({ kind: "ok", text: time.toFixed(1) + "s is close to the usual window — a small grind tweak if the taste asks for it." });
+      if (time < lowTime) {
+        notes.push({ kind: "warn", text: time.toFixed(1) + "s is quick for " + article + " (" + lowTime + "–" + highTime + "s). Grind finer in small steps and keep the dose steady." });
+      } else if (time > highTime) {
+        notes.push({ kind: "warn", text: time.toFixed(1) + "s runs long for " + article + " (" + lowTime + "–" + highTime + "s). Coarsen the grind a notch; if it still stalls, check for channeling." });
+      } else {
+        notes.push({ kind: "ok", text: time.toFixed(1) + "s sits in the " + lowTime + "–" + highTime + "s window for " + article + "." });
+      }
     }
 
     if (ratioValue !== null && time > 0) {
-      if (time < 20 && ratioValue < 1.8) notes.push({ kind: "tip", text: "Fast and short together point at the grind: go finer before changing anything else." });
-      if (time > 32 && ratioValue > 2.2) notes.push({ kind: "tip", text: "Slow and long: coarsen the grind, then stop the shot at 1:2." });
-      if (time < 20 && ratioValue > 2.4) notes.push({ kind: "tip", text: "Fast but long means the grind is too coarse — tightening it fixes both numbers at once." });
-      if (time > 32 && ratioValue < 1.8) notes.push({ kind: "tip", text: "Slow but short usually means channeling or a choked puck. Work on puck prep before the grind." });
+      if (time < lowTime && ratioValue < lowRatio) notes.push({ kind: "tip", text: "Fast and short together point at the grind: go finer before changing anything else." });
+      if (time > highTime && ratioValue > highRatio) notes.push({ kind: "tip", text: "Slow and long: coarsen the grind, then stop the shot at " + aim + "." });
+      if (time < lowTime && ratioValue > highRatio) notes.push({ kind: "tip", text: "Fast but long means the grind is too coarse — tightening it fixes both numbers at once." });
+      if (time > highTime && ratioValue < lowRatio) notes.push({ kind: "tip", text: "Slow but short usually means channeling or a choked puck. Work on puck prep before the grind." });
       var flow = yieldG / time;
-      if (flow < 0.8) notes.push({ kind: "tip", text: "Flow is about " + flow.toFixed(1) + " g/s — restrained, so expect a heavier body." });
-      else if (flow > 1.8) notes.push({ kind: "tip", text: "Flow is about " + flow.toFixed(1) + " g/s — quick, so the puck is offering little resistance." });
+      var expected = style ? style.flow : 1.3;
+      if (flow < expected * 0.7) notes.push({ kind: "tip", text: "Flow is about " + flow.toFixed(1) + " g/s, well under the " + expected.toFixed(1) + " g/s " + article + " usually shows — expect a heavier body." });
+      else if (flow > expected * 1.35) notes.push({ kind: "tip", text: "Flow is about " + flow.toFixed(1) + " g/s, quicker than the " + expected.toFixed(1) + " g/s " + article + " usually shows — the puck is offering little resistance." });
     }
 
     return notes.slice(0, 6);
@@ -956,9 +1007,13 @@
     var tagList = TAGS.slice();
     chosenTags.forEach(function (tag) { if (tagList.indexOf(tag) === -1) tagList.push(tag); });
 
+    // A saved style supplies the timer target and, for a fresh shot, the
+    // starting dose and yield. Explicit defaults still win.
+    var chosenStyle = styleById(prefs.espresso_style);
+
     var values = {
-      dose: source ? source.dose_g : prefs.dose_g,
-      yield: source ? source.yield_g : prefs.yield_g,
+      dose: source ? source.dose_g : (prefs.dose_g !== null && prefs.dose_g !== undefined && prefs.dose_g !== "" ? prefs.dose_g : (chosenStyle ? chosenStyle.dose : null)),
+      yield: source ? source.yield_g : (prefs.yield_g !== null && prefs.yield_g !== undefined && prefs.yield_g !== "" ? prefs.yield_g : (chosenStyle ? chosenStyle.yield : null)),
       time: source ? source.time_s : null,
       grind: source ? source.grind : "",
       temp: source ? source.temp_c : prefs.temp_c,
@@ -993,8 +1048,15 @@
             '<section class="form-card card timer-card">' +
               '<div class="timer-head">' +
                 '<div><h3>Brew timer</h3><p class="sub">Start it as the pump kicks in.</p></div>' +
-                '<label class="timer-target" for="timer-target">Target <input type="text" inputmode="decimal" id="timer-target" value="27" aria-label="Target shot time in seconds"> s</label>' +
+                '<label class="timer-target" for="timer-target">Target <input type="text" inputmode="decimal" id="timer-target" value="' + (chosenStyle ? chosenStyle.time : 27) + '" aria-label="Target shot time in seconds"> s</label>' +
               '</div>' +
+              '<div class="seg timer-styles" id="style-seg" role="group" aria-label="Espresso style">' +
+                ESPRESSO_STYLES.map(function (style) {
+                  var active = chosenStyle && chosenStyle.id === style.id;
+                  return '<button type="button" class="' + (active ? "active" : "") + '" data-style="' + esc(style.id) + '">' + esc(style.label) + '</button>';
+                }).join("") +
+              '</div>' +
+              '<p class="timer-preset" id="timer-preset">' + esc(styleRecipe(chosenStyle)) + '</p>' +
               '<div class="timer-display" id="timer-display">0:00.0</div>' +
               '<div class="timer-controls">' +
                 '<button type="button" class="btn btn-primary timer-btn" id="timer-toggle">' + icon("play") + '<span>Start</span></button>' +
@@ -1157,6 +1219,25 @@
       });
     });
 
+    // espresso style — sets the timer target and the starting recipe
+    var activeStyle = chosenStyle ? chosenStyle.id : "";
+
+    $$("#style-seg button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var style = styleById(btn.dataset.style);
+        activeStyle = style ? style.id : "";
+        $$("#style-seg button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+        if (style) {
+          $("#timer-target").value = style.time;
+          $("#dose_g").value = style.dose;
+          $("#yield_g").value = style.yield;
+        }
+        $("#timer-preset").textContent = styleRecipe(style);
+        updateReadout();
+        paintTimer();
+      });
+    });
+
     // live ratio / flow
     function updateReadout() {
       var dose = parseFloat($("#dose_g").value);
@@ -1177,7 +1258,7 @@
       var panel = $("#dialin");
       var list = $("#dialin-list");
       if (!panel || !list) return;
-      var notes = dialInNotes($("#dose_g").value, $("#yield_g").value, $("#time_s").value, method);
+      var notes = dialInNotes($("#dose_g").value, $("#yield_g").value, $("#time_s").value, method, activeStyle);
       panel.hidden = !notes.length;
       list.innerHTML = notes.map(function (note) {
         return '<li class="' + esc(note.kind || "tip") + '">' + esc(note.text) + '</li>';
@@ -1922,6 +2003,16 @@
               field("pref-dose", "Default dose", prefs.dose_g, "g", null, "dose_g") +
               field("pref-yield", "Default yield", prefs.yield_g, "g", null, "yield_g") +
               field("pref-temp", "Default temperature", prefs.temp_c, "°C", null, "temp_c") +
+              '<div class="field span-2"><label for="pref-style">Espresso style</label>' +
+                '<select id="pref-style">' +
+                  '<option value=""' + (prefs.espresso_style ? "" : " selected") + '>No preset</option>' +
+                  ESPRESSO_STYLES.map(function (style) {
+                    return '<option value="' + esc(style.id) + '"' + (prefs.espresso_style === style.id ? " selected" : "") + '>' +
+                      esc(style.label) + ' — ' + style.dose + 'g in, ' + style.yield + 'g out, ' + style.time + 's</option>';
+                  }).join("") +
+                '</select>' +
+                '<p class="small muted" style="margin-top:6px">Sets the timer target and the starting dose and yield for a new shot.</p>' +
+              '</div>' +
               '<div class="span-2"><button class="btn btn-primary" type="submit">Save defaults</button></div>' +
             '</form>' +
           '</section>' +
@@ -1953,7 +2044,7 @@
             '<div class="about-list">' +
               '<div><strong>Crema</strong> · a small coffee journal</div>' +
               '<div>Stored on this home server’s own drive, available to any device you sign in from.</div>' +
-              '<div>Version 1.0</div>' +
+              '<div>Version 1.0.1 · espresso styles</div>' +
             '</div>' +
             '<div class="divider"></div>' +
             '<button class="btn btn-danger" id="sign-out">' + icon("logout") + 'Sign out</button>' +
@@ -2025,7 +2116,8 @@
               basket: $("#pref-basket").value,
               dose_g: $("#pref-dose").value || null,
               yield_g: $("#pref-yield").value || null,
-              temp_c: $("#pref-temp").value || null
+              temp_c: $("#pref-temp").value || null,
+              espresso_style: $("#pref-style").value
             }
           }
         });
@@ -2034,6 +2126,16 @@
         toast("Defaults saved");
       } catch (err) { busy(button, false); toast(err.message, "error"); }
     });
+
+    var prefStyle = $("#pref-style");
+    if (prefStyle) {
+      prefStyle.addEventListener("change", function () {
+        var style = styleById(prefStyle.value);
+        if (!style) return;
+        if (!$("#pref-dose").value) $("#pref-dose").value = style.dose;
+        if (!$("#pref-yield").value) $("#pref-yield").value = style.yield;
+      });
+    }
 
     $("#password-form").addEventListener("submit", async function (event) {
       event.preventDefault();

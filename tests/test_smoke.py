@@ -170,6 +170,22 @@ class CremaSmokeTest(unittest.TestCase):
         self.assertIsNone(removed.get_json()["user"]["avatar"])
         self.assertEqual(self.owner.get("/api/me/avatar").status_code, 404)
 
+    def test_08_espresso_style_preference(self):
+        response = self.owner.patch(
+            "/api/me", json={"preferences": {"espresso_style": "ristretto", "dose_g": 18}}
+        )
+        self.assertEqual(response.status_code, 200, response.get_json())
+        prefs = response.get_json()["user"]["preferences"]
+        self.assertEqual(prefs["espresso_style"], "ristretto")
+        self.assertEqual(prefs["dose_g"], 18)
+
+        # Unknown styles are dropped rather than stored.
+        response = self.owner.patch(
+            "/api/me", json={"preferences": {"espresso_style": "quadruple"}}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("espresso_style", response.get_json()["user"]["preferences"])
+
 
 if __name__ == "__main__":
     unittest.main()

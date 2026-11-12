@@ -1097,6 +1097,14 @@ input:disabled {
   background: var(--paper); color: var(--ink);
   font-family: var(--sans); font-size: 14px; font-weight: 600;
 }
+.timer-styles { margin-top: 16px; }
+.timer-styles button { min-width: 88px; }
+.timer-preset {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .timer-display {
   font-family: var(--serif);
   font-size: clamp(46px, 9vw, 66px);
@@ -1132,3 +1140,7 @@ input:disabled {
 .dialin li.ok::before { background: var(--olive); }
 .dialin li.warn::before { background: var(--clay); }
 .dialin li.tip::before { background: var(--clay-deep); }
+
+@media (max-width: 560px) {
+  .timer-styles button { flex: 1 1 calc(50% - 4px); min-width: 0; }
+}

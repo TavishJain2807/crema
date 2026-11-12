@@ -691,7 +691,9 @@ def update_me():
         prefs = data.get("preferences")
         if not isinstance(prefs, dict):
             return fail("Invalid preferences")
-        allowed = {"machine", "grinder", "basket", "dose_g", "yield_g", "milk_type", "temp_c"}
+        allowed = {"machine", "grinder", "basket", "dose_g", "yield_g", "milk_type", "temp_c",
+                   "espresso_style"}
+        styles = {"", "ristretto", "single", "double", "lungo"}
         cleaned = {}
         for key, value in prefs.items():
             if key not in allowed:
@@ -701,6 +703,11 @@ def update_me():
                     cleaned[key] = clean_number(value, 0, 2000)
                 except ValueError:
                     continue
+            elif key == "espresso_style":
+                style = clean_text(value, 20)
+                if style not in styles:
+                    continue
+                cleaned[key] = style
             else:
                 cleaned[key] = clean_text(value, 120)
         fields.append("preferences = ?")
