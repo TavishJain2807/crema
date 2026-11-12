@@ -159,7 +159,9 @@ The archive is written under the data directory, so it survives app updates but 
 `rclone` talks to Drive directly, so no Google credentials live inside Crema.
 
 1. Install rclone on the machine running Crema: `sudo apt install rclone` (or see [rclone.org/install](https://rclone.org/install/)).
-2. Run `rclone config` as the user that runs Crema (or copy the resulting `rclone.conf` into that user's home). Create a new remote named `gdrive`, choose **Google Drive**, and leave the client ID and secret blank to use rclone's own. When it prints an authorize URL, open it in a browser on any machine, approve access, and paste the code back.
+2. Run `rclone config` as the user that runs Crema (or copy the resulting `rclone.conf` into that user's home). Create a new remote named `gdrive` and choose **Google Drive**. When it prints an authorize URL, open it in a browser on any machine, approve access, and paste the code back.
+
+   For a durable setup, create your own OAuth client instead of using rclone's shared one: enable the Drive API in the Google Cloud console, make a **Desktop app** client, and give rclone its ID and secret. Set the redirect URI to `http://127.0.0.1:53682/`. Google is retiring rclone's shared client, so a custom one avoids a future interruption; leaving the fields blank works in the meantime.
 3. Check it: `rclone lsd gdrive:`
 4. Copy the archives nightly with a systemd timer. Save this as `/etc/systemd/system/crema-drive.service`:
 
