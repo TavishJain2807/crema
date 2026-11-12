@@ -1624,6 +1624,11 @@ def write_backup(reason: str) -> str:
                             "To restore: stop Crema, replace the database file in COFFEE_DATA_DIR,\n"
                             "copy photos/ into COFFEE_DATA_DIR/photos, then start Crema again.\n")
         os.replace(partial, target)
+        try:
+            # The archive holds every account and photo; keep it owner-only.
+            os.chmod(target, 0o600)
+        except OSError:
+            pass
     finally:
         for leftover in (partial, dump):
             if os.path.exists(leftover):
