@@ -17,7 +17,9 @@
     historyQuery: "",
     historyMethod: "",
     historyFavorite: false,
-    offline: false
+    offline: false,
+    pending: [],
+    flushing: false
   };
 
   var deferredInstall = null;
@@ -424,6 +426,158 @@
     try { localStorage.removeItem(draftKey()); } catch (e) { /* ignore */ }
   }
 
+  // ------------------------------------------------------------ offline queue
+  //
+  // Logging a shot in a kitchen with patchy wifi should not lose the shot.
+  // A failed POST is parked in IndexedDB and replayed when Crema is reachable
+  // again. Each entry carries a client id so a retry cannot log it twice.
+
+  var QUEUE_DB = "crema-queue";
+  var QUEUE_STORE = "shots";
+
+  function queueOpen() {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) {
+        reject(new Error("This browser can’t store offline entries"));
+        return;
+      }
+      var request = indexedDB.open(QUEUE_DB, 1);
+      request.onupgradeneeded = function () {
+        var db = request.result;
+        if (!db.objectStoreNames.contains(QUEUE_STORE)) {
+          db.createObjectStore(QUEUE_STORE, { keyPath: "key", autoIncrement: true });
+        }
+      };
+      request.onsuccess = function () { resolve(request.result); };
+      request.onerror = function () { reject(request.error || new Error("Offline storage failed")); };
+    });
+  }
+
+  function queueWrite(mode, run) {
+    return queueOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(QUEUE_STORE, mode);
+        var request = run(tx.objectStore(QUEUE_STORE));
+        tx.oncomplete = function () { resolve(request ? request.result : undefined); };
+        tx.onerror = function () { reject(tx.error || new Error("Offline storage failed")); };
+        tx.onabort = function () { reject(tx.error || new Error("Offline storage failed")); };
+      }).finally(function () { db.close(); });
+    });
+  }
+
+  function queueAdd(entry) {
+    return queueWrite("readwrite", function (store) { return store.add(entry); });
+  }
+
+  function queueAll() {
+    return queueWrite("readonly", function (store) { return store.getAll(); })
+      .then(function (rows) { return rows || []; });
+  }
+
+  function queueDelete(key) {
+    return queueWrite("readwrite", function (store) { return store.delete(key); });
+  }
+
+  function newClientId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  }
+
+  async function enqueueShot(payload, photo) {
+    await queueAdd({
+      client_id: payload.client_id,
+      user_id: state.user ? state.user.id : null,
+      created_at: new Date().toISOString(),
+      shot: payload,
+      photo: photo && photo.full
+        ? { full: photo.full, thumb: photo.thumb, width: photo.width, height: photo.height }
+        : null
+    });
+    await refreshPending();
+  }
+
+  function myQueue(entries) {
+    var me = state.user ? state.user.id : null;
+    return (entries || []).filter(function (entry) {
+      return me !== null && entry.user_id === me;
+    });
+  }
+
+  async function refreshPending() {
+    try {
+      state.pending = myQueue(await queueAll());
+    } catch (e) {
+      state.pending = [];
+    }
+    paintQueueBanner();
+  }
+
+  function paintQueueBanner() {
+    var banner = $("#queue-banner");
+    if (!banner) return;
+    var count = state.pending.length;
+    banner.hidden = count === 0;
+    var copy = $("#queue-copy");
+    if (copy) {
+      copy.innerHTML = count === 1
+        ? '<strong>1 shot waiting</strong> — saved on this device, uploads when Crema is reachable.'
+        : '<strong>' + count + ' shots waiting</strong> — saved on this device, uploads when Crema is reachable.';
+    }
+  }
+
+  async function flushQueue(silent) {
+    if (state.flushing || !state.user) return 0;
+    var entries = [];
+    try {
+      entries = myQueue(await queueAll());
+    } catch (e) {
+      return 0;
+    }
+    if (!entries.length) {
+      await refreshPending();
+      return 0;
+    }
+
+    state.flushing = true;
+    var uploaded = 0;
+    try {
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        try {
+          var result = await api("/api/shots", { method: "POST", body: entry.shot });
+          if (entry.photo) {
+            try {
+              await api("/api/shots/" + result.shot.id + "/photo", { method: "POST", body: entry.photo });
+            } catch (photoErr) { /* the shot matters more than its picture */ }
+          }
+          await queueDelete(entry.key);
+          uploaded++;
+        } catch (err) {
+          if (err.offline) break;
+          if (err.status >= 400 && err.status < 500) {
+            // The server will never accept this one; drop it rather than retrying forever.
+            await queueDelete(entry.key);
+            toast("One offline entry could not be saved", "error");
+            continue;
+          }
+          break;
+        }
+      }
+    } finally {
+      state.flushing = false;
+    }
+
+    await refreshPending();
+    if (uploaded) {
+      if (!silent) toast(uploaded === 1 ? "Offline shot uploaded" : uploaded + " offline shots uploaded");
+      try {
+        await loadAll();
+        if (state.route && state.route.name !== "log") route();
+      } catch (e) { /* the next refresh will catch up */ }
+    }
+    return uploaded;
+  }
+
   var reconnectTimer = null;
 
   function scheduleReconnect() {
@@ -470,6 +624,7 @@
       await loadAll();
       var inForm = document.querySelector(".modal-backdrop") || (state.route && state.route.name === "log");
       if (!inForm) route();
+      await flushQueue(false);
     } catch (e) {
       // Still show the snapshot; the banner is gone because we are reachable.
     }
@@ -738,8 +893,11 @@
               '<div class="topbar-actions" id="topbar-actions"></div>' +
             '</header>' +
             '<div class="offline-banner" id="offline-banner" hidden><span class="dot"></span>' +
-              '<span class="ob-copy"><strong>Offline</strong> — showing your last synced journal. New entries can’t be saved until you reconnect.</span>' +
+              '<span class="ob-copy"><strong>Offline</strong> — showing your last synced journal. New shots are kept on this device and upload when you reconnect.</span>' +
               '<button class="btn btn-quiet btn-sm" id="offline-retry" type="button">Try again</button></div>' +
+            '<div class="offline-banner queue-banner" id="queue-banner" hidden><span class="dot"></span>' +
+              '<span class="ob-copy" id="queue-copy"></span>' +
+              '<button class="btn btn-quiet btn-sm" id="queue-upload" type="button">Upload now</button></div>' +
             '<div class="view" id="view" tabindex="-1"></div>' +
           '</div>' +
         '</main>' +
@@ -767,7 +925,18 @@
       });
     }
 
+    var upload = $("#queue-upload");
+    if (upload) {
+      upload.addEventListener("click", async function () {
+        busy(upload, true, "Uploading…");
+        var sent = await flushQueue(false);
+        busy(upload, false);
+        if (!sent && state.pending.length) toast("Still can’t reach Crema", "error");
+      });
+    }
+
     setOfflineNotice(state.offline);
+    paintQueueBanner();
   }
 
   function setActiveNav(name) {
@@ -899,6 +1068,35 @@
 
     var recent = state.shots.slice(0, 5);
 
+    // The bag that will go stale first, among those with something left in it.
+    var bag = state.beans.filter(function (b) {
+      return !b.archived && b.bag_size_g && (b.shots_left === null || b.shots_left === undefined || b.shots_left > 0);
+    }).sort(function (a, b) {
+      var ageA = daysSince(a.roast_date);
+      var ageB = daysSince(b.roast_date);
+      if (ageA === null && ageB === null) return (a.shots_left || 0) - (b.shots_left || 0);
+      if (ageA === null) return 1;
+      if (ageB === null) return -1;
+      return ageB - ageA;
+    })[0];
+
+    var bagCard = "";
+    if (bag) {
+      var bagAge = daysSince(bag.roast_date);
+      var bagBits = [];
+      if (bag.roaster) bagBits.push(bag.roaster);
+      if (bagAge !== null) bagBits.push(bagAge === 0 ? "roasted today" : bagAge + " days off roast");
+      bagBits.push(num(bag.remaining_g, 0) + "g left" + (bag.shots_left ? " · about " + bag.shots_left + " shots" : ""));
+      bagCard = '<a class="card card-pad bag-first" href="#/beans">' +
+        '<div>' +
+          '<p class="eyebrow">Drink this one first</p>' +
+          '<h3>' + esc(bag.name) + '</h3>' +
+          '<p class="small muted">' + esc(bagBits.join(" · ")) + '</p>' +
+        '</div>' +
+        '<span class="pill olive">' + (bagAge !== null && bagAge > 21 ? "Past its peak" : "Open bag") + '</span>' +
+      '</a>';
+    }
+
     $("#view").innerHTML =
       '<section class="hero">' +
         '<div class="hero-rings" aria-hidden="true"><span></span><span></span><span></span><span></span></div>' +
@@ -919,6 +1117,8 @@
             '<div class="meta">' + esc(tile.meta) + '</div></div>';
         }).join("") +
       '</div>' +
+
+      bagCard +
 
       '<div class="split" style="margin-bottom:20px">' +
         '<section class="card card-pad">' +
@@ -1029,6 +1229,8 @@
       tasting: source ? source.tasting_notes : "",
       notes: source ? source.notes : "",
       bean_id: source ? source.bean_id : "",
+      is_cafe: source ? Boolean(source.is_cafe) : false,
+      cafe_name: source ? source.cafe_name || "" : "",
       brewed_at: source ? source.brewed_at : new Date().toISOString()
     };
 
@@ -1045,7 +1247,7 @@
       '<form id="shot-form" novalidate>' +
         '<div class="log-grid">' +
           '<div class="section-stack">' +
-            '<section class="form-card card timer-card">' +
+            '<section class="form-card card timer-card" id="timer-card">' +
               '<div class="timer-head">' +
                 '<div><h3>Brew timer</h3><p class="sub">Start it as the pump kicks in.</p></div>' +
                 '<label class="timer-target" for="timer-target">Target <input type="text" inputmode="decimal" id="timer-target" value="' + (chosenStyle ? chosenStyle.time : 27) + '" aria-label="Target shot time in seconds"> s</label>' +
@@ -1111,6 +1313,16 @@
                     '<div><div class="t">A favourite</div><div class="d">Keep it close</div></div>' +
                     '<span class="switch"><input type="checkbox" name="favorite"' + (source && source.favorite ? " checked" : "") + '><span class="track"></span></span>' +
                   '</div>' +
+                '</div>' +
+                '<div class="span-2">' +
+                  '<div class="toggle-row" style="border:0;padding:0;margin-top:2px">' +
+                    '<div><div class="t">Drank it at a café</div><div class="d">Keeps it out of your dial-in numbers</div></div>' +
+                    '<span class="switch"><input type="checkbox" id="is_cafe" name="is_cafe"' + (values.is_cafe ? " checked" : "") + '><span class="track"></span></span>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="field span-2" id="cafe-name-field"' + (values.is_cafe ? "" : " hidden") + '>' +
+                  '<label for="cafe_name">Where</label>' +
+                  '<input id="cafe_name" name="cafe_name" placeholder="e.g. Prufrock, London" value="' + esc(values.cafe_name) + '">' +
                 '</div>' +
               '</div>' +
             '</section>' +
@@ -1190,7 +1402,7 @@
               '</div>' +
             '</section>' +
 
-            '<section class="form-card card">' +
+            '<section class="form-card card" id="gear-card">' +
               '<h3>Gear</h3><p class="sub">Filled in from your defaults.</p>' +
               '<div class="form-grid">' +
                 field("machine", "Machine", values.machine, "", null) +
@@ -1238,6 +1450,26 @@
       });
     });
 
+    // café mode — a coffee you drank out, so the timer and dial-in take a seat
+    var isCafe = values.is_cafe;
+    var cafeInput = $("#is_cafe");
+
+    function paintCafeMode() {
+      isCafe = Boolean(cafeInput && cafeInput.checked);
+      var nameField = $("#cafe-name-field");
+      if (nameField) nameField.hidden = !isCafe;
+      var timerCard = $("#timer-card");
+      if (timerCard) timerCard.hidden = isCafe;
+      var gearCard = $("#gear-card");
+      if (gearCard) gearCard.hidden = isCafe;
+      paintDialIn();
+    }
+
+    if (cafeInput) {
+      cafeInput.addEventListener("change", paintCafeMode);
+      paintCafeMode();
+    }
+
     // live ratio / flow
     function updateReadout() {
       var dose = parseFloat($("#dose_g").value);
@@ -1258,6 +1490,11 @@
       var panel = $("#dialin");
       var list = $("#dialin-list");
       if (!panel || !list) return;
+      if (isCafe) {
+        panel.hidden = true;
+        list.innerHTML = "";
+        return;
+      }
       var notes = dialInNotes($("#dose_g").value, $("#yield_g").value, $("#time_s").value, method, activeStyle);
       panel.hidden = !notes.length;
       list.innerHTML = notes.map(function (note) {
@@ -1459,6 +1696,8 @@
         grinder: form.grinder.value,
         basket: form.basket.value,
         favorite: form.favorite.checked,
+        is_cafe: form.is_cafe.checked,
+        cafe_name: form.cafe_name ? form.cafe_name.value : "",
         brewed_at: fromLocalInput(form.brewed_at.value)
       };
       TASTE.forEach(function (pair) {
@@ -1506,12 +1745,16 @@
         grinder: form.grinder.value,
         basket: form.basket.value,
         favorite: form.favorite.checked,
+        is_cafe: form.is_cafe.checked,
+        cafe_name: form.cafe_name ? form.cafe_name.value.trim() : "",
         brewed_at: fromLocalInput(form.brewed_at.value)
       };
       TASTE.forEach(function (pair) {
         var slider = $('[data-taste="' + pair[0] + '"]');
         payload[pair[0]] = slider && slider.value !== "0" ? slider.value : null;
       });
+
+      if (!shot) payload.client_id = newClientId();
 
       var button = $("#save-shot");
       busy(button, true, shot ? "Saving…" : "Adding…");
@@ -1551,6 +1794,20 @@
         }
         location.hash = "#/history/" + result.shot.id;
       } catch (err) {
+        if (err.offline && !shot) {
+          try {
+            await enqueueShot(payload, photoState);
+            clearDraft();
+            draftFlush = null;
+            toast("Saved on this device — it uploads when Crema is back");
+            location.hash = "#/history";
+            return;
+          } catch (queueErr) {
+            busy(button, false);
+            toast("Couldn’t save that offline — " + queueErr.message, "error");
+            return;
+          }
+        }
         busy(button, false);
         toast(err.message, "error");
       }
@@ -1575,7 +1832,7 @@
       if (!q) return true;
       var haystack = [
         shot.bean_name, shot.bean_roaster, shot.method, shot.grind, shot.machine, shot.grinder,
-        shot.tasting_notes, shot.notes, (shot.flavor_tags || []).join(" ")
+        shot.tasting_notes, shot.notes, shot.cafe_name, (shot.flavor_tags || []).join(" ")
       ].join(" ").toLowerCase();
       return haystack.indexOf(q) !== -1;
     });
@@ -1678,8 +1935,9 @@
       '<div class="shot-head">' +
         '<div class="shot-date"><div class="d">' + date.getDate() + '</div><div class="m">' + MONTHS[date.getMonth()] + '</div></div>' +
         '<div class="shot-main">' +
-          '<div class="top"><h4>' + esc(shot.bean_name || "No bean recorded") + '</h4>' +
+          '<div class="top"><h4>' + esc(shot.bean_name || (shot.is_cafe ? "Out for coffee" : "No bean recorded")) + '</h4>' +
             '<span class="pill">' + esc(titleCase(shot.method)) + '</span>' +
+            (shot.is_cafe ? '<span class="pill line">' + icon("cup") + (shot.cafe_name ? esc(shot.cafe_name) : "At a café") + '</span>' : "") +
             (shot.favorite ? '<span class="pill clay">Favourite</span>' : "") +
           '</div>' +
           '<div class="meta">' + esc(meta.join(" · ")) + '</div>' +
@@ -1825,6 +2083,15 @@
 
   function beanCard(bean) {
     var age = daysSince(bean.roast_date);
+    var usage = "";
+    if (bean.bag_size_g) {
+      var shotsLeft = bean.shots_left;
+      usage = '<div class="bag-usage">' +
+        '<span><strong>' + num(bean.remaining_g, 0) + 'g</strong> of ' + num(bean.bag_size_g, 0) + 'g left</span>' +
+        (shotsLeft === null || shotsLeft === undefined ? "" :
+          '<span class="sep">·</span><span>' + (shotsLeft === 0 ? "down to the last shots" : "about " + shotsLeft + " shot" + (shotsLeft === 1 ? "" : "s")) + '</span>') +
+      '</div>';
+    }
     return '<article class="bean-card' + (bean.archived ? " is-archived" : "") + '">' +
       '<div class="top"><div><h3>' + esc(bean.name) + '</h3>' + (bean.roaster ? '<div class="roaster">' + esc(bean.roaster) + '</div>' : "") + '</div>' +
         (bean.archived ? '<span class="pill line">Archived</span>' : "") +
@@ -1834,8 +2101,10 @@
         (bean.process ? '<span class="pill">' + esc(bean.process) + '</span>' : "") +
         (bean.roast_level ? '<span class="pill olive">' + esc(titleCase(bean.roast_level)) + '</span>' : "") +
         (age !== null ? '<span class="pill line">' + (age === 0 ? "Roasted today" : age + " days off roast") + '</span>' : "") +
+        (age !== null && age >= 7 && age <= 21 ? '<span class="pill olive">In its prime</span>' : "") +
       '</div>' +
       (bean.notes ? '<p class="notes">' + esc(bean.notes) + '</p>' : "") +
+      usage +
       '<div class="foot">' +
         '<span class="shots">' + bean.shot_count + ' shot' + (bean.shot_count === 1 ? "" : "s") + ' logged</span>' +
         '<span class="acts">' +
@@ -1961,6 +2230,7 @@
     }
 
     var adminCard = "";
+    var backupCard = "";
     if (user.admin) {
       adminCard =
         '<section class="card card-pad" id="accounts-card">' +
@@ -1970,6 +2240,16 @@
             '<span class="switch"><input type="checkbox" id="approval-toggle" role="switch"' + (user.registration_approval ? " checked" : "") + '><span class="track"></span></span>' +
           '</label>' +
           '<div class="pending-list" id="pending-list"><p class="small muted">Loading requests…</p></div>' +
+        '</section>';
+
+      backupCard =
+        '<section class="card card-pad" id="backup-card">' +
+          '<div class="card-head"><div><h3>Backups</h3><p>Nightly archives on this machine.</p></div></div>' +
+          '<p class="small muted" id="backup-status">Checking…</p>' +
+          '<div class="export-row" style="margin-top:12px">' +
+            '<button class="btn btn-ghost btn-sm" id="backup-now" type="button">Back up now</button>' +
+            '<a class="btn btn-quiet btn-sm" href="/api/backup/latest" download>Download latest</a>' +
+          '</div>' +
         '</section>';
     }
 
@@ -2031,6 +2311,8 @@
             '</div>' +
           '</section>' +
 
+          backupCard +
+
           '<section class="card card-pad">' +
             '<div class="card-head"><div><h3>Password</h3><p>Change the key to your journal.</p></div></div>' +
             '<form id="password-form" class="form-grid">' +
@@ -2044,7 +2326,7 @@
             '<div class="about-list">' +
               '<div><strong>Crema</strong> · a small coffee journal</div>' +
               '<div>Stored on this home server’s own drive, available to any device you sign in from.</div>' +
-              '<div>Version 1.0.1 · espresso styles</div>' +
+              '<div>Version 1.1.0 · bags, café log, offline queue</div>' +
             '</div>' +
             '<div class="divider"></div>' +
             '<button class="btn btn-danger" id="sign-out">' + icon("logout") + 'Sign out</button>' +
@@ -2226,6 +2508,48 @@
       loadPending();
     }
 
+    var backupStatus = $("#backup-status");
+    if (backupStatus) {
+      var paintBackup = function (data) {
+        if (!data) {
+          backupStatus.textContent = "Backups are unavailable right now.";
+          return;
+        }
+        var pieces = [];
+        pieces.push(data.last_backup_at
+          ? "Last backup " + fmtDateTime(data.last_backup_at)
+          : "No backup yet");
+        if (data.files && data.files.length) {
+          pieces.push(data.files.length + (data.files.length === 1 ? " archive" : " archives") + " kept");
+        } else {
+          pieces.push("none kept yet");
+        }
+        pieces.push("runs every " + (data.hours >= 24 ? Math.round(data.hours / 24) + " day" + (data.hours >= 48 ? "s" : "") : data.hours + " hours"));
+        if (data.enabled === false) {
+          pieces[pieces.length - 1] = "automatic backups are off";
+        }
+        backupStatus.textContent = pieces.join(" · ");
+      };
+
+      api("/api/backup").then(paintBackup).catch(function () { paintBackup(null); });
+
+      var backupNow = $("#backup-now");
+      if (backupNow) {
+        backupNow.addEventListener("click", async function () {
+          busy(backupNow, true, "Backing up…");
+          try {
+            await api("/api/backup", { method: "POST" });
+            var fresh = await api("/api/backup");
+            paintBackup(fresh);
+            toast("Backup written");
+          } catch (err) {
+            toast(err.message, "error");
+          }
+          busy(backupNow, false);
+        });
+      }
+    }
+
     var installButton = $("#install-app");
     if (installButton) installButton.addEventListener("click", promptInstall);
   }
@@ -2271,7 +2595,7 @@
 
   function openBeanModal(bean, onSaved) {
     var isEdit = Boolean(bean);
-    var values = bean || { name: "", roaster: "", origin: "", process: "", varietal: "", roast_level: "", roast_date: "", notes: "" };
+    var values = bean || { name: "", roaster: "", origin: "", process: "", varietal: "", roast_level: "", roast_date: "", notes: "", bag_size_g: "" };
 
     openModal({
       title: isEdit ? "Edit bag" : "Add a bag of beans",
@@ -2289,6 +2613,7 @@
             }).join("") +
           '</select></div>' +
           '<div class="field"><label for="bean-date">Roast date</label><input type="date" id="bean-date" name="roast_date" value="' + esc(values.roast_date) + '"></div>' +
+          '<div class="field"><label for="bean-size">Bag size <span style="text-transform:none;letter-spacing:0;font-weight:400">(g)</span></label><input type="text" inputmode="decimal" id="bean-size" name="bag_size_g" value="' + (values.bag_size_g || "") + '" placeholder="e.g. 250"></div>' +
           '<div class="field span-2"><label for="bean-notes">Notes</label><textarea id="bean-notes" name="notes" placeholder="Tasting notes from the bag, or your own.">' + esc(values.notes) + '</textarea></div>' +
         '</form>',
       footer: '<button class="btn btn-ghost" id="bean-cancel">Cancel</button><button class="btn btn-primary" id="bean-save">' + (isEdit ? "Save bag" : "Add bag") + '</button>',
@@ -2305,7 +2630,8 @@
             varietal: form.varietal.value.trim(),
             roast_level: form.roast_level.value,
             roast_date: form.roast_date.value,
-            notes: form.notes.value.trim()
+            notes: form.notes.value.trim(),
+            bag_size_g: form.bag_size_g.value.trim() || null
           };
           if (!payload.name) { toast("Give the bag a name", "error"); return; }
           busy(save, true, isEdit ? "Saving…" : "Adding…");
@@ -2357,6 +2683,7 @@
 
   window.addEventListener("online", function () {
     if (state.offline) probeConnection(true);
+    else flushQueue(false);
   });
 
   document.addEventListener("visibilitychange", function () {
@@ -2369,6 +2696,7 @@
       renderShell();
       if (!location.hash) history.replaceState(null, "", "#/dashboard");
       route();
+      flushQueue(false);
     } catch (err) {
       if (err && err.status === 401) {
         renderAuth("signin");
@@ -2383,6 +2711,7 @@
           renderShell();
           if (!location.hash) history.replaceState(null, "", "#/dashboard");
           route();
+          refreshPending();
           toast("Offline — showing your last synced journal");
         } else {
           renderAuth("signin", "You’re offline. Reconnect to sign in to Crema.");

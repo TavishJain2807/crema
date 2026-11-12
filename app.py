@@ -1,6 +1,7 @@
 """Crema — a small, self-hosted coffee journal."""
 
 import base64
+import contextlib
 import csv
 import hashlib
 import io
@@ -12,7 +13,14 @@ import secrets
 import sqlite3
 import threading
 import time
+import zipfile
 from datetime import datetime, timedelta, timezone
+
+try:
+    import fcntl
+except ImportError:  # not available on Windows; the thread lock still applies
+    fcntl = None
+
 
 from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -38,6 +46,7 @@ mimetypes.add_type("image/svg+xml", ".svg")
 
 _init_lock = threading.Lock()
 _initialised = False
+_backup_started = False
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -68,6 +77,7 @@ CREATE TABLE IF NOT EXISTS beans (
     roast_level     TEXT NOT NULL DEFAULT '',
     roast_date      TEXT NOT NULL DEFAULT '',
     notes           TEXT NOT NULL DEFAULT '',
+    bag_size_g      REAL,
     archived        INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL
 );
@@ -102,6 +112,9 @@ CREATE TABLE IF NOT EXISTS shots (
     grinder         TEXT NOT NULL DEFAULT '',
     basket          TEXT NOT NULL DEFAULT '',
     favorite        INTEGER NOT NULL DEFAULT 0,
+    is_cafe         INTEGER NOT NULL DEFAULT 0,
+    cafe_name       TEXT NOT NULL DEFAULT '',
+    client_id       TEXT NOT NULL DEFAULT '',
     brewed_at       TEXT NOT NULL,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
@@ -135,6 +148,7 @@ CREATE TABLE IF NOT EXISTS shot_photos (
 
 METHODS = {"espresso", "latte", "cappuccino", "flat white", "filter", "cold brew", "other"}
 ROAST_LEVELS = {"", "light", "medium-light", "medium", "medium-dark", "dark"}
+DEFAULT_DOSE_G = 18.0
 
 ADMIN_EMAIL = os.environ.get("CREMA_ADMIN_EMAIL", "").strip().lower()
 
@@ -159,15 +173,29 @@ def ensure_db() -> None:
         conn = sqlite3.connect(DB_PATH, timeout=20)
         try:
             conn.executescript(SCHEMA)
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-            for column, definition in (
-                ("status", "TEXT NOT NULL DEFAULT 'active'"),
-                ("avatar_file", "TEXT NOT NULL DEFAULT ''"),
-                ("avatar_mime", "TEXT NOT NULL DEFAULT ''"),
-                ("avatar_updated_at", "TEXT NOT NULL DEFAULT ''"),
-            ):
-                if column not in columns:
-                    conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
+
+            def add_missing(table: str, wanted: dict) -> None:
+                current = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                for column, definition in wanted.items():
+                    if column not in current:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+            add_missing("users", {
+                "status": "TEXT NOT NULL DEFAULT 'active'",
+                "avatar_file": "TEXT NOT NULL DEFAULT ''",
+                "avatar_mime": "TEXT NOT NULL DEFAULT ''",
+                "avatar_updated_at": "TEXT NOT NULL DEFAULT ''",
+            })
+            add_missing("beans", {"bag_size_g": "REAL"})
+            add_missing("shots", {
+                "is_cafe": "INTEGER NOT NULL DEFAULT 0",
+                "cafe_name": "TEXT NOT NULL DEFAULT ''",
+                "client_id": "TEXT NOT NULL DEFAULT ''",
+            })
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_shots_client "
+                "ON shots(user_id, client_id) WHERE client_id != ''"
+            )
             conn.execute(
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('registration_approval', ?)",
                 ("1" if ADMIN_EMAIL else "0",),
@@ -176,6 +204,7 @@ def ensure_db() -> None:
         finally:
             conn.close()
         _initialised = True
+        start_backup_thread()
 
 
 def db() -> sqlite3.Connection:
@@ -399,6 +428,7 @@ def bean_payload(row) -> dict:
         "roast_level": row["roast_level"],
         "roast_date": row["roast_date"],
         "notes": row["notes"],
+        "bag_size_g": row["bag_size_g"] if "bag_size_g" in row.keys() else None,
         "archived": bool(row["archived"]),
         "created_at": row["created_at"],
     }
@@ -454,6 +484,8 @@ def shot_payload(row) -> dict:
         "grinder": row["grinder"],
         "basket": row["basket"],
         "favorite": bool(row["favorite"]),
+        "is_cafe": bool(row["is_cafe"]) if "is_cafe" in keys else False,
+        "cafe_name": row["cafe_name"] if "cafe_name" in keys else "",
         "brewed_at": row["brewed_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -855,7 +887,10 @@ def admin_reject_user(user_id: int):
 @login_required
 def list_beans():
     rows = db().execute(
-        "SELECT b.*, (SELECT COUNT(*) FROM shots s WHERE s.bean_id = b.id) AS shot_count "
+        "SELECT b.*, "
+        "(SELECT COUNT(*) FROM shots s WHERE s.bean_id = b.id AND s.is_cafe = 0) AS shot_count, "
+        "(SELECT COALESCE(SUM(s.dose_g), 0) FROM shots s WHERE s.bean_id = b.id AND s.is_cafe = 0) AS used_g, "
+        "(SELECT COALESCE(AVG(s.dose_g), 0) FROM shots s WHERE s.bean_id = b.id AND s.is_cafe = 0 AND s.dose_g > 0) AS avg_dose "
         "FROM beans b WHERE b.user_id = ? ORDER BY b.archived ASC, b.created_at DESC",
         (current_user()["id"],),
     ).fetchall()
@@ -863,6 +898,17 @@ def list_beans():
     for row in rows:
         item = bean_payload(row)
         item["shot_count"] = row["shot_count"]
+        used = round(row["used_g"] or 0, 1)
+        item["used_g"] = used
+        size = item["bag_size_g"]
+        if size:
+            remaining = max(0.0, round(float(size) - used, 1))
+            per_shot = row["avg_dose"] or DEFAULT_DOSE_G
+            item["remaining_g"] = remaining
+            item["shots_left"] = int(remaining // per_shot) if remaining >= per_shot else 0
+        else:
+            item["remaining_g"] = None
+            item["shots_left"] = None
         beans.append(item)
     return jsonify({"beans": beans})
 
@@ -889,6 +935,7 @@ def read_bean(data: dict) -> dict:
         "roast_level": roast_level,
         "roast_date": roast_date,
         "notes": clean_text(data.get("notes"), 1000),
+        "bag_size_g": clean_number(data.get("bag_size_g"), 1, 5000),
     }
 
 
@@ -901,11 +948,11 @@ def create_bean():
         return fail(str(exc))
     conn = db()
     cur = conn.execute(
-        "INSERT INTO beans (user_id, name, roaster, origin, process, varietal, roast_level, roast_date, notes, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO beans (user_id, name, roaster, origin, process, varietal, roast_level, roast_date, notes, bag_size_g, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (current_user()["id"], values["name"], values["roaster"], values["origin"],
          values["process"], values["varietal"], values["roast_level"], values["roast_date"],
-         values["notes"], iso(utcnow())),
+         values["notes"], values["bag_size_g"], iso(utcnow())),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM beans WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -937,6 +984,7 @@ def update_bean(bean_id: int):
         "roast_level": data.get("roast_level", row["roast_level"]),
         "roast_date": data.get("roast_date", row["roast_date"]),
         "notes": data.get("notes", row["notes"]),
+        "bag_size_g": data.get("bag_size_g", row["bag_size_g"]),
     }
     try:
         values = read_bean(merged)
@@ -944,9 +992,9 @@ def update_bean(bean_id: int):
         return fail(str(exc))
     conn.execute(
         "UPDATE beans SET name = ?, roaster = ?, origin = ?, process = ?, varietal = ?, "
-        "roast_level = ?, roast_date = ?, notes = ? WHERE id = ?",
+        "roast_level = ?, roast_date = ?, notes = ?, bag_size_g = ? WHERE id = ?",
         (values["name"], values["roaster"], values["origin"], values["process"], values["varietal"],
-         values["roast_level"], values["roast_date"], values["notes"], bean_id),
+         values["roast_level"], values["roast_date"], values["notes"], values["bag_size_g"], bean_id),
     )
     conn.commit()
     updated = conn.execute("SELECT * FROM beans WHERE id = ?", (bean_id,)).fetchone()
@@ -1031,10 +1079,14 @@ def read_shot(data: dict, user_id: int, existing=None) -> dict:
         "machine": clean_text(pick("machine", ""), 120),
         "grinder": clean_text(pick("grinder", ""), 120),
         "basket": clean_text(pick("basket", ""), 120),
+        "is_cafe": clean_bool(pick("is_cafe", 0)),
+        "cafe_name": clean_text(pick("cafe_name", ""), 120),
         "flavor_tags": json.dumps(cleaned_tags),
         "favorite": clean_bool(pick("favorite", 0)),
         "brewed_at": clean_iso_datetime(pick("brewed_at")),
     }
+    if not values["is_cafe"]:
+        values["cafe_name"] = ""
     for field, (minimum, maximum) in SHOT_NUMBER_FIELDS.items():
         values[field] = clean_number(pick(field), minimum, maximum)
     values["rating"] = clean_rating(pick("rating"))
@@ -1086,13 +1138,28 @@ def list_shots():
 @login_required
 def create_shot():
     user = current_user()
+    data = body()
+    conn = db()
+
+    # The offline queue retries posts it could not confirm; a client id keeps
+    # that retry from logging the same shot twice. Check it before validation so
+    # a retry still matches even if its bean has since been removed.
+    client_id = clean_text(data.get("client_id"), 60)
+    if client_id:
+        existing = conn.execute(
+            SHOT_SELECT + " WHERE s.user_id = ? AND s.client_id = ?", (user["id"], client_id)
+        ).fetchone()
+        if existing is not None:
+            return jsonify({"shot": shot_payload(existing), "duplicate": True}), 200
+
     try:
-        values = read_shot(body(), user["id"])
+        values = read_shot(data, user["id"])
     except ValueError as exc:
         return fail(str(exc))
+    if client_id:
+        values["client_id"] = client_id
 
     now = iso(utcnow())
-    conn = db()
     columns = list(values.keys()) + ["user_id", "created_at", "updated_at"]
     params = list(values.values()) + [user["id"], now, now]
     placeholders = ", ".join("?" for _ in columns)
@@ -1259,19 +1326,24 @@ def delete_photo(shot_id: int):
 def stats():
     user_id = current_user()["id"]
     conn = db()
-    total = conn.execute("SELECT COUNT(*) AS c FROM shots WHERE user_id = ?", (user_id,)).fetchone()["c"]
+    # Café entries are part of the journal but not part of the brewing record:
+    # they never move the averages, the streak, or the dial-in advice.
+    home = "user_id = ? AND is_cafe = 0"
+    total = conn.execute(f"SELECT COUNT(*) AS c FROM shots WHERE {home}", (user_id,)).fetchone()["c"]
+    cafe_total = conn.execute("SELECT COUNT(*) AS c FROM shots WHERE user_id = ? AND is_cafe = 1",
+                              (user_id,)).fetchone()["c"]
     week_ago = iso(utcnow() - timedelta(days=7))
-    week = conn.execute("SELECT COUNT(*) AS c FROM shots WHERE user_id = ? AND brewed_at >= ?",
+    week = conn.execute(f"SELECT COUNT(*) AS c FROM shots WHERE {home} AND brewed_at >= ?",
                         (user_id, week_ago)).fetchone()["c"]
-    avg_row = conn.execute("SELECT AVG(rating) AS r FROM shots WHERE user_id = ? AND rating IS NOT NULL",
+    avg_row = conn.execute(f"SELECT AVG(rating) AS r FROM shots WHERE {home} AND rating IS NOT NULL",
                            (user_id,)).fetchone()
     recipe_row = conn.execute(
-        "SELECT AVG(dose_g) AS d, AVG(yield_g) AS y, AVG(time_s) AS t "
-        "FROM shots WHERE user_id = ? AND method = 'espresso'", (user_id,)).fetchone()
+        f"SELECT AVG(dose_g) AS d, AVG(yield_g) AS y, AVG(time_s) AS t "
+        f"FROM shots WHERE {home} AND method = 'espresso'", (user_id,)).fetchone()
     if recipe_row["d"] is None and recipe_row["y"] is None and recipe_row["t"] is None:
         recipe_row = conn.execute(
-            "SELECT AVG(dose_g) AS d, AVG(yield_g) AS y, AVG(time_s) AS t "
-            "FROM shots WHERE user_id = ?", (user_id,)).fetchone()
+            f"SELECT AVG(dose_g) AS d, AVG(yield_g) AS y, AVG(time_s) AS t "
+            f"FROM shots WHERE {home}", (user_id,)).fetchone()
     bean_count = conn.execute("SELECT COUNT(*) AS c FROM beans WHERE user_id = ? AND archived = 0",
                               (user_id,)).fetchone()["c"]
 
@@ -1280,16 +1352,17 @@ def stats():
         day = (utcnow() - timedelta(days=offset)).date()
         start = iso(datetime(day.year, day.month, day.day, tzinfo=timezone.utc))
         end = iso(datetime(day.year, day.month, day.day, tzinfo=timezone.utc) + timedelta(days=1))
-        count = conn.execute("SELECT COUNT(*) AS c FROM shots WHERE user_id = ? AND brewed_at >= ? AND brewed_at < ?",
-                             (user_id, start, end)).fetchone()["c"]
+        count = conn.execute(
+            f"SELECT COUNT(*) AS c FROM shots WHERE {home} AND brewed_at >= ? AND brewed_at < ?",
+            (user_id, start, end)).fetchone()["c"]
         series.append({"date": day.isoformat(), "count": count})
 
     methods = [dict(row) for row in conn.execute(
-        "SELECT method, COUNT(*) AS count FROM shots WHERE user_id = ? GROUP BY method ORDER BY count DESC",
+        f"SELECT method, COUNT(*) AS count FROM shots WHERE {home} GROUP BY method ORDER BY count DESC",
         (user_id,)).fetchall()]
 
     tag_counts: dict[str, int] = {}
-    for row in conn.execute("SELECT flavor_tags FROM shots WHERE user_id = ?", (user_id,)).fetchall():
+    for row in conn.execute(f"SELECT flavor_tags FROM shots WHERE {home}", (user_id,)).fetchall():
         try:
             for tag in json.loads(row["flavor_tags"] or "[]"):
                 if isinstance(tag, str):
@@ -1300,14 +1373,16 @@ def stats():
 
     favorite_bean = conn.execute(
         "SELECT b.name, b.roaster, COUNT(*) AS count FROM shots s JOIN beans b ON b.id = s.bean_id "
-        "WHERE s.user_id = ? GROUP BY b.id ORDER BY count DESC LIMIT 1", (user_id,)).fetchone()
+        "WHERE s.user_id = ? AND s.is_cafe = 0 GROUP BY b.id ORDER BY count DESC LIMIT 1",
+        (user_id,)).fetchone()
 
     best = conn.execute(
-        SHOT_SELECT + " WHERE s.user_id = ? AND s.rating IS NOT NULL "
+        SHOT_SELECT + " WHERE s.user_id = ? AND s.is_cafe = 0 AND s.rating IS NOT NULL "
         "ORDER BY s.rating DESC, s.brewed_at DESC LIMIT 1", (user_id,)).fetchone()
 
     return jsonify({
         "total_shots": total,
+        "cafe_shots": cafe_total,
         "week_shots": week,
         "avg_rating": round(avg_row["r"], 2) if avg_row["r"] is not None else None,
         "avg_dose": round(recipe_row["d"], 1) if recipe_row["d"] is not None else None,
@@ -1342,7 +1417,8 @@ def export_csv():
         ("bitterness", "Bitterness"), ("aftertaste", "Aftertaste"),
         ("flavor_tags", "Flavor tags"), ("tasting_notes", "Tasting notes"),
         ("notes", "Notes"), ("machine", "Machine"), ("grinder", "Grinder"),
-        ("basket", "Basket"), ("favorite", "Favorite"),
+        ("basket", "Basket"), ("favorite", "Favorite"), ("is_cafe", "At a café"),
+        ("cafe_name", "Place"),
     ]
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -1426,6 +1502,205 @@ def health():
     except sqlite3.Error:
         return jsonify({"status": "error"}), 500
     return jsonify({"status": "ok"})
+
+
+# ---------------------------------------------------------------- backups
+
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+try:
+    BACKUP_HOURS = float(os.environ.get("CREMA_BACKUP_HOURS", "24") or 24)
+except ValueError:
+    BACKUP_HOURS = 24.0
+try:
+    BACKUP_KEEP = max(1, int(os.environ.get("CREMA_BACKUP_KEEP", "14") or 14))
+except ValueError:
+    BACKUP_KEEP = 14
+BACKUP_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def backup_guard():
+    """Serialise archive writes across threads and gunicorn workers.
+
+    Two workers each run a backup thread. The file lock means only one of them
+    builds an archive, and the second sees the fresh last_backup_at afterwards.
+    """
+    with BACKUP_LOCK:
+        handle = open(os.path.join(DATA_DIR, ".backup.lock"), "w")
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+            handle.close()
+
+
+def list_backups() -> list:
+    if not os.path.isdir(BACKUP_DIR):
+        return []
+    names = [name for name in os.listdir(BACKUP_DIR) if name.endswith(".zip")]
+    return sorted(names, reverse=True)
+
+
+def prune_backups(keep: int = None) -> None:
+    keep = BACKUP_KEEP if keep is None else keep
+    for name in list_backups()[max(0, keep):]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, name))
+        except OSError:
+            pass
+
+
+def record_backup(name: str) -> None:
+    stamp = iso(utcnow())
+    conn = sqlite3.connect(DB_PATH, timeout=20)
+    try:
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('last_backup_at', ?)", (stamp,))
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('last_backup_file', ?)", (name,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def last_backup_at():
+    conn = sqlite3.connect(DB_PATH, timeout=20)
+    try:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = 'last_backup_at'").fetchone()
+    finally:
+        conn.close()
+    if not row or not row[0]:
+        return None
+    try:
+        return datetime.fromisoformat(str(row[0]).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def backup_due() -> bool:
+    if BACKUP_HOURS <= 0:
+        return False
+    last = last_backup_at()
+    if last is None:
+        return True
+    return (utcnow() - last).total_seconds() >= BACKUP_HOURS * 3600
+
+
+def write_backup(reason: str) -> str:
+    """Write one zip with a consistent copy of the database plus the photos.
+
+    Callers must hold backup_guard().
+    """
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    base = utcnow().strftime("%Y%m%d-%H%M%S")
+    name = f"crema-{base}.zip"
+    counter = 2
+    while os.path.exists(os.path.join(BACKUP_DIR, name)):
+        name = f"crema-{base}-{counter}.zip"
+        counter += 1
+    target = os.path.join(BACKUP_DIR, name)
+    partial = target + ".part"
+    dump = partial + ".sqlite3"
+    try:
+        source = sqlite3.connect(DB_PATH, timeout=20)
+        try:
+            snapshot = sqlite3.connect(dump)
+            try:
+                source.backup(snapshot)
+            finally:
+                snapshot.close()
+        finally:
+            source.close()
+        with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as bundle:
+            bundle.write(dump, "crema.sqlite3")
+            for entry in sorted(os.listdir(PHOTO_DIR)):
+                path = os.path.join(PHOTO_DIR, entry)
+                if os.path.isfile(path):
+                    bundle.write(path, f"photos/{entry}")
+            bundle.writestr("README.txt",
+                            f"Crema backup ({reason})\ncreated: {iso(utcnow())}\n\n"
+                            "crema.sqlite3 is the whole journal; photos/ holds shot and profile images.\n"
+                            "To restore: stop Crema, replace the database file in COFFEE_DATA_DIR,\n"
+                            "copy photos/ into COFFEE_DATA_DIR/photos, then start Crema again.\n")
+        os.replace(partial, target)
+    finally:
+        for leftover in (partial, dump):
+            if os.path.exists(leftover):
+                try:
+                    os.remove(leftover)
+                except OSError:
+                    pass
+    prune_backups()
+    record_backup(name)
+    return name
+
+
+def create_backup(reason: str = "manual") -> str:
+    with backup_guard():
+        return write_backup(reason)
+
+
+def scheduled_backup():
+    """Create the nightly archive only if one is due, re-checking under the lock."""
+    with backup_guard():
+        if not backup_due():
+            return None
+        return write_backup("nightly")
+
+
+def backup_loop() -> None:
+    # Give the worker time to finish starting, then check twice an hour.
+    time.sleep(90)
+    while True:
+        try:
+            scheduled_backup()
+        except Exception:
+            app.logger.exception("Automatic backup failed")
+        time.sleep(1800)
+
+
+@app.get("/api/backup")
+@admin_required
+def backup_status():
+    files = [{"name": name, "bytes": os.path.getsize(os.path.join(BACKUP_DIR, name))} for name in list_backups()]
+    last = last_backup_at()
+    return jsonify({
+        "last_backup_at": iso(last) if last else None,
+        "files": files[:BACKUP_KEEP],
+        "keep": BACKUP_KEEP,
+        "hours": BACKUP_HOURS,
+        "enabled": os.environ.get("CREMA_BACKUP", "1") != "0" and BACKUP_HOURS > 0,
+        "directory": BACKUP_DIR,
+    })
+
+
+@app.post("/api/backup")
+@admin_required
+def backup_now():
+    try:
+        name = create_backup("manual")
+    except (OSError, sqlite3.Error) as exc:
+        return fail(f"Could not write the backup: {exc}", 500)
+    return jsonify({"ok": True, "file": name, "files": list_backups()[:BACKUP_KEEP]}), 201
+
+
+@app.get("/api/backup/latest")
+@admin_required
+def backup_download():
+    files = list_backups()
+    if not files:
+        return fail("No backup yet", 404)
+    return send_from_directory(BACKUP_DIR, files[0], as_attachment=True)
+
+
+def start_backup_thread() -> None:
+    global _backup_started
+    if os.environ.get("CREMA_BACKUP", "1") == "0" or _backup_started:
+        return
+    _backup_started = True
+    thread = threading.Thread(target=backup_loop, name="crema-backup", daemon=True)
+    thread.start()
 
 
 # ---------------------------------------------------------------- static SPA

@@ -183,33 +183,37 @@ def _date_range(shots):
 
 
 def _compute_stats(shots):
-    rated = [shot for shot in shots if shot.get("rating")]
-    espresso = [shot for shot in shots if (shot.get("method") or "").lower() == "espresso"]
-    recipe_source = espresso or shots
+    # Café entries are part of the journal but not part of the brewing record.
+    home = [shot for shot in shots if not shot.get("is_cafe")]
+    rated = [shot for shot in home if shot.get("rating")]
+    espresso = [shot for shot in home if (shot.get("method") or "").lower() == "espresso"]
+    recipe_source = espresso or home
 
     def average(values):
         values = [float(value) for value in values if value not in (None, "")]
         return round(sum(values) / len(values), 1) if values else None
 
     tag_counts = Counter()
-    for shot in shots:
+    for shot in home:
         for tag in shot.get("flavor_tags") or []:
             tag_counts[str(tag)] += 1
 
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     week_count = 0
-    for shot in shots:
+    for shot in home:
         parsed = _parse_dt(shot.get("brewed_at"))
         if parsed and parsed.astimezone(timezone.utc) >= week_ago:
             week_count += 1
 
     beans = Counter(
-        shot.get("bean_name") for shot in shots if shot.get("bean_name")
+        shot.get("bean_name") for shot in home if shot.get("bean_name")
     )
     best = max(rated, key=lambda shot: (shot.get("rating") or 0, shot.get("brewed_at") or ""), default=None)
 
     return {
-        "total": len(shots),
+        "total": len(home),
+        "cafe": sum(1 for shot in shots if shot.get("is_cafe")),
+        "rated": len(rated),
         "week": week_count,
         "avg_rating": round(sum(float(shot["rating"]) for shot in rated) / len(rated), 2) if rated else None,
         "avg_dose": average([shot.get("dose_g") for shot in recipe_source]),
@@ -620,10 +624,14 @@ def _shot_flowables(shot, photo_path, styles, fonts):
     )
 
     bean = shot.get("bean_name") or "No bean recorded"
+    if shot.get("is_cafe"):
+        bean = shot.get("cafe_name") or "Out for coffee"
     title = (
         f'<font name="{fonts["serif"]}" size="12.5" color="{INK_HEX}">{_clean(bean)}</font>'
         f'  <font name="{fonts["sans_bold"]}" size="6.1" color="{CLAY_HEX}">{_clean(_title_case(shot.get("method") or "coffee").upper())}</font>'
     )
+    if shot.get("is_cafe"):
+        title += f'  <font name="{fonts["sans_bold"]}" size="6.1" color="{MUTED_HEX}">AT A CAFÉ</font>'
     if shot.get("favorite"):
         title += f'  <font name="{fonts["sans_bold"]}" size="6.1" color="{CLAY_HEX}">★ FAVOURITE</font>'
     title_paragraph = Paragraph(title, styles["shot_title"])
@@ -852,7 +860,7 @@ def build_pdf(user, shots, beans, photo_paths=None, generated_at=None):
 
     story.append(StatTiles([
         ("Shots logged", str(total), f"{stats['week']} in the last seven days"),
-        ("Average score", f"{avg:.1f}" if avg else "—", f"across {sum(1 for shot in shots if shot.get('rating'))} rated shots"),
+        ("Average score", f"{avg:.1f}" if avg else "—", f"across {stats['rated']} rated shots"),
         ("Bags in the cellar", str(bag_count), stats["most_brewed"][0] if stats["most_brewed"] else "add a bag to get started"),
         ("Typical espresso", typical, typical_meta),
     ], fonts, styles))
