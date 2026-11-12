@@ -45,6 +45,7 @@
   var ICON = {
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></svg>',
     cup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h13v4.5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9.5Z"/><path d="M17 10.5h1.3a2.4 2.4 0 0 1 0 4.8H17"/><path d="M7.5 3.5v2.2M11.5 3.5v2.2M15.5 3.5v2.2"/></svg>',
+    cafe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10.5M20 20V10.5"/><path d="M3 10.5 4.5 4h15L21 10.5Z"/><path d="M9 20v-5h6v5"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.1 2"/></svg>',
     bean: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="6.4" ry="8.6" transform="rotate(38 12 12)"/><path d="M9.2 6.6c2.6 3 2.6 7.8 0 10.8"/></svg>',
     calc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="3.5" width="15" height="17" rx="2.4"/><path d="M8 7.8h8"/><path d="M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg>',
@@ -850,6 +851,7 @@
   var NAV = [
     { id: "dashboard", label: "Dashboard", icon: "grid" },
     { id: "log", label: "Log a shot", icon: "cup" },
+    { id: "cafe", label: "Café", icon: "cafe" },
     { id: "history", label: "History", icon: "clock" },
     { id: "beans", label: "Beans", icon: "bean" },
     { id: "calculator", label: "Calculator", icon: "calc" },
@@ -859,6 +861,7 @@
   var TITLES = {
     dashboard: ["Journal", "Your coffee, lately"],
     log: ["New entry", "Log a shot"],
+    cafe: ["Out and about", "At a café"],
     history: ["Journal", "Brewing history"],
     beans: ["Cellar", "Beans"],
     calculator: ["Tools", "Recipe calculator"],
@@ -977,12 +980,9 @@
     setActiveNav(parsed.name);
 
     var actions = $("#topbar-actions");
-    actions.innerHTML = parsed.name === "log"
+    actions.innerHTML = parsed.name === "log" || parsed.name === "cafe"
       ? '<button class="btn btn-quiet" id="topbar-cancel">Cancel</button>'
       : '<a class="btn btn-primary topbar-cta" href="#/log">' + icon("plus") + 'Log a shot</a>';
-    if (parsed.name === "log" && parsed.id) {
-      actions.innerHTML = '<button class="btn btn-quiet" id="topbar-cancel">Cancel</button>';
-    }
     var cancel = $("#topbar-cancel");
     if (cancel) cancel.addEventListener("click", function () {
       if (state.route.name === "log") {
@@ -998,6 +998,7 @@
       .then(function () {
         if (parsed.name === "dashboard") return viewDashboard();
         if (parsed.name === "log") return viewLog(parsed.id);
+        if (parsed.name === "cafe") return viewCafe(parsed.id);
         if (parsed.name === "history") return viewHistory(parsed.id);
         if (parsed.name === "beans") return viewBeans();
         if (parsed.name === "calculator") return viewCalculator();
@@ -1032,7 +1033,12 @@
     var avg = stats.avg_rating;
 
     var heroCopy;
-    if (last) {
+    if (last && last.is_cafe) {
+      heroCopy = "Last out: " + esc(titleCase(last.method)) +
+        (last.drink_name ? " — " + esc(last.drink_name) : "") +
+        (last.cafe_name ? " at " + esc(last.cafe_name) : "") + ". " +
+        (last.rating ? "You rated it " + last.rating + " of 5." : "How was it?");
+    } else if (last) {
       heroCopy = esc(titleCase(last.method)) + (last.bean_name ? " with " + esc(last.bean_name) : "") +
         " — " + grams(last.dose_g) + " in, " + grams(last.yield_g) + " out" +
         (last.time_s ? " in " + shotTime(last.time_s) : "") + ". " +
@@ -1042,7 +1048,7 @@
     }
 
     var tiles = [
-      { label: "Shots logged", value: total, meta: (stats.week_shots || 0) + " in the last seven days" },
+      { label: "Shots logged", value: total, meta: (stats.week_shots || 0) + " in the last seven days" + (stats.cafe_shots ? " · " + stats.cafe_shots + " café " + (stats.cafe_shots === 1 ? "visit" : "visits") : "") },
       { label: "Average score", value: avg ? Number(avg).toFixed(1) : "—", suffix: avg ? "/ 5" : "", meta: avg ? "across your rated shots" : "rate a shot to see this" },
       { label: "Beans in the cellar", value: stats.bean_count || 0, meta: (stats.favorite_bean ? "Most brewed: " + stats.favorite_bean.name : "Add a bag to get started") },
       { label: "Typical espresso", value: stats.avg_dose ? num(stats.avg_dose, 1) + "g" : "—", meta: stats.avg_yield ? "→ " + num(stats.avg_yield, 1) + "g" + (stats.avg_time ? " · " + shotTime(stats.avg_time) : "") : "dose and yield will appear here" }
@@ -1170,12 +1176,16 @@
 
   function recentRow(shot) {
     var meta = [titleCase(shot.method)];
+    if (shot.is_cafe && shot.drink_name) meta.push(shot.drink_name);
     if (shot.dose_g || shot.yield_g) meta.push(grams(shot.dose_g) + " → " + grams(shot.yield_g));
     if (shot.time_s) meta.push(shotTime(shot.time_s));
+    var name = shot.is_cafe
+      ? (shot.cafe_name || "Out for coffee")
+      : (shot.bean_name || "No bean recorded");
     return '<div class="recent-row" data-id="' + shot.id + '">' +
       '<div class="when">' + esc(relDay(shot.brewed_at)) + '</div>' +
       (shot.photo ? '<button type="button" class="recent-thumb" data-photo="' + esc(shot.photo.url) + '" aria-label="View photo"><img src="' + esc(shot.photo.thumb_url) + '" alt="" loading="lazy"></button>' : "") +
-      '<div class="what"><strong>' + esc(shot.bean_name || "No bean recorded") + '</strong><span>' + esc(meta.join(" · ")) + '</span></div>' +
+      '<div class="what"><strong>' + esc(name) + '</strong><span>' + esc(meta.join(" · ")) + '</span></div>' +
       '<div class="rating">' + stars(shot.rating) + '</div>' +
     '</div>';
   }
@@ -1190,6 +1200,87 @@
     }).join("");
   }
 
+  // Shared by the shot form and the café form. Both pages use the same photo
+  // field ids, so the uploader only has to live in one place.
+  function mountPhotoField(photoState) {
+    var preview = $("#photo-preview");
+    var add = $("#photo-add");
+    var img = $("#photo-img");
+    var input = $("#photo-input");
+    var remove = $("#photo-remove");
+    if (!preview || !add || !img || !input || !remove) return;
+
+    function paintPhoto() {
+      var src = photoState.full || (photoState.existing && !photoState.removed ? photoState.existing.thumb_url : "");
+      if (src) {
+        img.src = src;
+        preview.hidden = false;
+        add.hidden = true;
+      } else {
+        img.removeAttribute("src");
+        preview.hidden = true;
+        add.hidden = false;
+      }
+    }
+    paintPhoto();
+
+    input.addEventListener("change", async function (event) {
+      var file = event.target.files && event.target.files[0];
+      if (!file) return;
+      add.classList.add("working");
+      try {
+        var prepared = await compressPhoto(file);
+        photoState.full = prepared.full;
+        photoState.thumb = prepared.thumb;
+        photoState.width = prepared.width;
+        photoState.height = prepared.height;
+        photoState.removed = false;
+        paintPhoto();
+        haptic();
+      } catch (err) {
+        toast(err.message, "error");
+        event.target.value = "";
+      } finally {
+        add.classList.remove("working");
+      }
+    });
+
+    remove.addEventListener("click", function () {
+      photoState.full = null;
+      photoState.thumb = null;
+      photoState.width = null;
+      photoState.height = null;
+      photoState.removed = Boolean(photoState.existing);
+      input.value = "";
+      paintPhoto();
+    });
+
+    img.addEventListener("click", function () {
+      if (photoState.full) openPhoto(photoState.full, "Photo for this entry");
+      else if (photoState.existing && !photoState.removed) openPhoto(photoState.existing.url, "Photo for this entry");
+    });
+  }
+
+  function mountRating(initial) {
+    var rating = initial || 0;
+    var label = $("#rating-label");
+    function paintStars() {
+      $$("#rating-input button").forEach(function (btn) {
+        btn.classList.toggle("on", Number(btn.dataset.star) <= rating);
+      });
+      if (label) label.textContent = rating ? rating + " of 5" : "Not rated yet";
+    }
+    $$("#rating-input button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var value = Number(btn.dataset.star);
+        rating = rating === value ? 0 : value;
+        paintStars();
+      });
+    });
+    paintStars();
+    return { value: function () { return rating; } };
+  }
+
   async function viewLog(id) {
     var shot = null;
     if (id) {
@@ -1197,6 +1288,11 @@
       if (!shot) {
         shot = (await api("/api/shots/" + id)).shot;
       }
+    }
+    // Café visits have their own page, with none of the espresso fields.
+    if (shot && shot.is_cafe) {
+      location.replace("#/cafe/" + shot.id);
+      return;
     }
 
     var prefs = state.user.preferences || {};
@@ -1229,8 +1325,6 @@
       tasting: source ? source.tasting_notes : "",
       notes: source ? source.notes : "",
       bean_id: source ? source.bean_id : "",
-      is_cafe: source ? Boolean(source.is_cafe) : false,
-      cafe_name: source ? source.cafe_name || "" : "",
       brewed_at: source ? source.brewed_at : new Date().toISOString()
     };
 
@@ -1244,6 +1338,11 @@
     };
 
     $("#view").innerHTML =
+      (!shot ? '<a class="cafe-invite" href="#/cafe">' +
+        '<span class="cafe-invite-icon">' + icon("cafe") + '</span>' +
+        '<span class="cafe-invite-copy"><strong>Out for coffee?</strong><span>Log a café visit — just the place, the drink, and how it tasted.</span></span>' +
+        '<span class="cafe-invite-go">' + icon("chevron") + '</span>' +
+      '</a>' : "") +
       '<form id="shot-form" novalidate>' +
         '<div class="log-grid">' +
           '<div class="section-stack">' +
@@ -1313,16 +1412,6 @@
                     '<div><div class="t">A favourite</div><div class="d">Keep it close</div></div>' +
                     '<span class="switch"><input type="checkbox" name="favorite"' + (source && source.favorite ? " checked" : "") + '><span class="track"></span></span>' +
                   '</div>' +
-                '</div>' +
-                '<div class="span-2">' +
-                  '<div class="toggle-row" style="border:0;padding:0;margin-top:2px">' +
-                    '<div><div class="t">Drank it at a café</div><div class="d">Keeps it out of your dial-in numbers</div></div>' +
-                    '<span class="switch"><input type="checkbox" id="is_cafe" name="is_cafe"' + (values.is_cafe ? " checked" : "") + '><span class="track"></span></span>' +
-                  '</div>' +
-                '</div>' +
-                '<div class="field span-2" id="cafe-name-field"' + (values.is_cafe ? "" : " hidden") + '>' +
-                  '<label for="cafe_name">Where</label>' +
-                  '<input id="cafe_name" name="cafe_name" placeholder="e.g. Prufrock, London" value="' + esc(values.cafe_name) + '">' +
                 '</div>' +
               '</div>' +
             '</section>' +
@@ -1450,26 +1539,6 @@
       });
     });
 
-    // café mode — a coffee you drank out, so the timer and dial-in take a seat
-    var isCafe = values.is_cafe;
-    var cafeInput = $("#is_cafe");
-
-    function paintCafeMode() {
-      isCafe = Boolean(cafeInput && cafeInput.checked);
-      var nameField = $("#cafe-name-field");
-      if (nameField) nameField.hidden = !isCafe;
-      var timerCard = $("#timer-card");
-      if (timerCard) timerCard.hidden = isCafe;
-      var gearCard = $("#gear-card");
-      if (gearCard) gearCard.hidden = isCafe;
-      paintDialIn();
-    }
-
-    if (cafeInput) {
-      cafeInput.addEventListener("change", paintCafeMode);
-      paintCafeMode();
-    }
-
     // live ratio / flow
     function updateReadout() {
       var dose = parseFloat($("#dose_g").value);
@@ -1490,11 +1559,6 @@
       var panel = $("#dialin");
       var list = $("#dialin-list");
       if (!panel || !list) return;
-      if (isCafe) {
-        panel.hidden = true;
-        list.innerHTML = "";
-        return;
-      }
       var notes = dialInNotes($("#dose_g").value, $("#yield_g").value, $("#time_s").value, method, activeStyle);
       panel.hidden = !notes.length;
       list.innerHTML = notes.map(function (note) {
@@ -1582,20 +1646,7 @@
     });
 
     // rating
-    var rating = source && source.rating ? Number(source.rating) : 0;
-    function paintStars() {
-      $$("#rating-input button").forEach(function (btn) {
-        btn.classList.toggle("on", Number(btn.dataset.star) <= rating);
-      });
-      $("#rating-label").textContent = rating ? rating + " of 5" : "Not rated yet";
-    }
-    $$("#rating-input button").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var value = Number(btn.dataset.star);
-        rating = rating === value ? 0 : value;
-        paintStars();
-      });
-    });
+    var ratingState = mountRating(source && source.rating ? Number(source.rating) : 0);
 
     // taste sliders
     $$("[data-taste]").forEach(function (slider) {
@@ -1615,60 +1666,7 @@
     });
 
     // photo
-    function paintPhoto() {
-      var preview = $("#photo-preview");
-      var add = $("#photo-add");
-      var img = $("#photo-img");
-      var src = photoState.full || (photoState.existing && !photoState.removed ? photoState.existing.thumb_url : "");
-      if (src) {
-        img.src = src;
-        preview.hidden = false;
-        add.hidden = true;
-      } else {
-        img.removeAttribute("src");
-        preview.hidden = true;
-        add.hidden = false;
-      }
-    }
-    paintPhoto();
-
-    $("#photo-input").addEventListener("change", async function (event) {
-      var file = event.target.files && event.target.files[0];
-      if (!file) return;
-      var add = $("#photo-add");
-      add.classList.add("working");
-      try {
-        var prepared = await compressPhoto(file);
-        photoState.full = prepared.full;
-        photoState.thumb = prepared.thumb;
-        photoState.width = prepared.width;
-        photoState.height = prepared.height;
-        photoState.removed = false;
-        paintPhoto();
-        haptic();
-      } catch (err) {
-        toast(err.message, "error");
-        event.target.value = "";
-      } finally {
-        add.classList.remove("working");
-      }
-    });
-
-    $("#photo-remove").addEventListener("click", function () {
-      photoState.full = null;
-      photoState.thumb = null;
-      photoState.width = null;
-      photoState.height = null;
-      photoState.removed = Boolean(photoState.existing);
-      $("#photo-input").value = "";
-      paintPhoto();
-    });
-
-    var photoPreview = $("#photo-img");
-    photoPreview.addEventListener("click", function () {
-      if (photoState.full) openPhoto(photoState.full, "Photo for this shot");
-      else if (photoState.existing && !photoState.removed) openPhoto(photoState.existing.url, "Photo for this shot");
-    });
+    mountPhotoField(photoState);
 
     // save
     var form = $("#shot-form");
@@ -1688,7 +1686,7 @@
         ey: form.ey ? form.ey.value || null : null,
         milk_type: form.milk_type ? form.milk_type.value : "",
         milk_volume_ml: form.milk_volume_ml ? form.milk_volume_ml.value || null : null,
-        rating: rating || null,
+        rating: ratingState.value() || null,
         flavor_tags: $$("#tag-picker button.on").map(function (b) { return b.dataset.tag; }),
         tasting_notes: form.tasting_notes.value,
         notes: form.notes.value,
@@ -1696,8 +1694,6 @@
         grinder: form.grinder.value,
         basket: form.basket.value,
         favorite: form.favorite.checked,
-        is_cafe: form.is_cafe.checked,
-        cafe_name: form.cafe_name ? form.cafe_name.value : "",
         brewed_at: fromLocalInput(form.brewed_at.value)
       };
       TASTE.forEach(function (pair) {
@@ -1737,7 +1733,7 @@
         ey: form.ey.value || null,
         milk_type: form.milk_type ? form.milk_type.value : "",
         milk_volume_ml: form.milk_volume_ml ? form.milk_volume_ml.value || null : null,
-        rating: rating || null,
+        rating: ratingState.value() || null,
         flavor_tags: $$("#tag-picker button.on").map(function (b) { return b.dataset.tag; }),
         tasting_notes: form.tasting_notes.value,
         notes: form.notes.value,
@@ -1745,8 +1741,6 @@
         grinder: form.grinder.value,
         basket: form.basket.value,
         favorite: form.favorite.checked,
-        is_cafe: form.is_cafe.checked,
-        cafe_name: form.cafe_name ? form.cafe_name.value.trim() : "",
         brewed_at: fromLocalInput(form.brewed_at.value)
       };
       TASTE.forEach(function (pair) {
@@ -1814,6 +1808,224 @@
     });
   }
 
+  // ------------------------------------------------------------ café log
+
+  async function viewCafe(id) {
+    var shot = null;
+    if (id) {
+      shot = state.shots.filter(function (s) { return String(s.id) === String(id); })[0];
+      if (!shot) {
+        shot = (await api("/api/shots/" + id)).shot;
+      }
+      if (shot && !shot.is_cafe) {
+        location.replace("#/log/" + shot.id);
+        return;
+      }
+    }
+
+    var source = shot;
+    var method = source && source.method ? source.method : "flat white";
+    var chosenTags = source && source.flavor_tags ? source.flavor_tags.slice() : [];
+    var tagList = TAGS.slice();
+    chosenTags.forEach(function (tag) { if (tagList.indexOf(tag) === -1) tagList.push(tag); });
+
+    var values = {
+      cafe_name: source ? source.cafe_name || "" : "",
+      drink_name: source ? source.drink_name || "" : "",
+      tasting: source ? source.tasting_notes : "",
+      notes: source ? source.notes : "",
+      brewed_at: source ? source.brewed_at : new Date().toISOString()
+    };
+
+    var photoState = {
+      existing: shot && shot.photo ? shot.photo : null,
+      full: null,
+      thumb: null,
+      width: null,
+      height: null,
+      removed: false
+    };
+
+    $("#view").innerHTML =
+      '<form id="cafe-form" class="cafe-page" novalidate>' +
+        '<div class="log-grid">' +
+          '<div class="section-stack">' +
+            '<section class="form-card card">' +
+              '<div class="cafe-visit-head">' +
+                '<span class="cafe-stamp">' + icon("cafe") + '</span>' +
+                '<div><h3>The visit</h3><p class="sub">Where you went, and what you ordered.</p></div>' +
+              '</div>' +
+              '<div class="form-grid">' +
+                '<div class="field span-2">' +
+                  '<label for="cafe_name">Where did you go?</label>' +
+                  '<input id="cafe_name" name="cafe_name" placeholder="e.g. Prufrock, London" value="' + esc(values.cafe_name) + '">' +
+                '</div>' +
+                '<div class="field span-2">' +
+                  '<label for="drink_name">What did you order?</label>' +
+                  '<input id="drink_name" name="drink_name" placeholder="e.g. Oat flat white, extra hot" value="' + esc(values.drink_name) + '">' +
+                '</div>' +
+                '<div class="field span-2">' +
+                  '<span class="field-label">Drink style</span>' +
+                  '<div class="seg" id="cafe-method-seg">' +
+                    METHODS.map(function (m) {
+                      var active = method === m;
+                      return '<button type="button" class="' + (active ? "active" : "") + '" data-method="' + esc(m) + '">' + esc(titleCase(m)) + '</button>';
+                    }).join("") +
+                  '</div>' +
+                '</div>' +
+                '<div class="field"><label for="brewed_at">When</label><input type="datetime-local" id="brewed_at" name="brewed_at" value="' + toLocalInput(values.brewed_at) + '"></div>' +
+                '<div class="field" style="justify-content:flex-end"><label class="sr-only">Would go back</label>' +
+                  '<div class="toggle-row" style="border:0;padding:0">' +
+                    '<div><div class="t">Would go back</div><div class="d">A place worth returning to</div></div>' +
+                    '<span class="switch"><input type="checkbox" name="favorite"' + (source && source.favorite ? " checked" : "") + '><span class="track"></span></span>' +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+            '</section>' +
+
+            '<section class="form-card card">' +
+              '<h3>Photo</h3><p class="sub">The café, the cup, or the moment.</p>' +
+              '<div class="photo-field">' +
+                '<div class="photo-preview" id="photo-preview" hidden>' +
+                  '<img id="photo-img" alt="Photo from this café visit">' +
+                  '<button type="button" class="photo-remove" id="photo-remove" aria-label="Remove photo">' + icon("x") + '</button>' +
+                '</div>' +
+                '<label class="photo-add" id="photo-add" for="photo-input">' +
+                  '<span class="photo-add-icon">' + icon("camera") + '</span>' +
+                  '<strong>Add a photo</strong>' +
+                  '<span>Take one now, or choose from your library.</span>' +
+                '</label>' +
+                '<input type="file" id="photo-input" accept="image/*" hidden>' +
+              '</div>' +
+            '</section>' +
+
+            '<section class="form-card card">' +
+              '<h3>Tasting notes</h3><p class="sub">The part a menu can’t tell you.</p>' +
+              '<div class="field" style="margin-bottom:16px">' +
+                '<span class="field-label">Flavour</span>' +
+                '<div class="tag-picker" id="tag-picker">' +
+                  tagList.map(function (tag) {
+                    return '<button type="button" class="' + (chosenTags.indexOf(tag) !== -1 ? "on" : "") + '" data-tag="' + esc(tag) + '">' + esc(tag) + '</button>';
+                  }).join("") +
+                '</div>' +
+              '</div>' +
+              '<div class="field" style="margin-bottom:14px"><label for="tasting_notes">How did it taste?</label>' +
+                '<textarea id="tasting_notes" name="tasting_notes" placeholder="Silky milk, cocoa and a long finish…">' + esc(values.tasting) + '</textarea></div>' +
+              '<div class="field"><label for="notes">Anything else</label>' +
+                '<textarea id="notes" name="notes" placeholder="What to order next time, who you were with, the seat by the window…">' + esc(values.notes) + '</textarea></div>' +
+            '</section>' +
+          '</div>' +
+
+          '<div class="section-stack">' +
+            '<section class="form-card card">' +
+              '<h3>Rating</h3><p class="sub">A quick honest score.</p>' +
+              '<div class="rating-input" id="rating-input">' +
+                [1, 2, 3, 4, 5].map(function (n) {
+                  return '<button type="button" data-star="' + n + '" aria-label="' + n + ' star' + (n > 1 ? "s" : "") + '" class="' + (shot && shot.rating >= n ? "on" : "") + '">★</button>';
+                }).join("") +
+              '</div>' +
+              '<p class="small muted" id="rating-label" style="margin-top:8px">' + (shot && shot.rating ? shot.rating + " of 5" : "Not rated yet") + '</p>' +
+            '</section>' +
+
+            '<section class="form-card card cafe-note">' +
+              '<span class="cafe-note-icon">' + icon("bean") + '</span>' +
+              '<h3>Kept out of the numbers</h3>' +
+              '<p class="sub">A café visit stays in your journal, but it never moves your dial-in, brew ratios, or home statistics.</p>' +
+            '</section>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="form-actions">' +
+          '<span class="hint">' + (shot ? "Editing your visit from " + esc(fmtDateTime(shot.brewed_at)) : "Jot it down while it’s fresh.") + '</span>' +
+          '<button class="btn btn-primary btn-lg" type="submit" id="save-cafe">' + (shot ? "Save changes" : "Save café visit") + '</button>' +
+        '</div>' +
+      '</form>';
+
+    $$("#cafe-method-seg button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        method = btn.dataset.method;
+        $$("#cafe-method-seg button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+      });
+    });
+
+    $$("#tag-picker button").forEach(function (btn) {
+      btn.addEventListener("click", function () { btn.classList.toggle("on"); });
+    });
+
+    var ratingState = mountRating(shot && shot.rating ? Number(shot.rating) : 0);
+    mountPhotoField(photoState);
+
+    var form = $("#cafe-form");
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      var payload = {
+        method: method,
+        rating: ratingState.value() || null,
+        flavor_tags: $$("#tag-picker button.on").map(function (b) { return b.dataset.tag; }),
+        tasting_notes: form.tasting_notes.value,
+        notes: form.notes.value,
+        favorite: form.favorite.checked,
+        is_cafe: true,
+        cafe_name: form.cafe_name.value.trim(),
+        drink_name: form.drink_name.value.trim(),
+        brewed_at: fromLocalInput(form.brewed_at.value)
+      };
+      if (!shot) payload.client_id = newClientId();
+
+      var button = $("#save-cafe");
+      busy(button, true, shot ? "Saving…" : "Adding…");
+      var photoError = null;
+      try {
+        var result = await api(shot ? "/api/shots/" + shot.id : "/api/shots", {
+          method: shot ? "PATCH" : "POST",
+          body: payload
+        });
+
+        try {
+          if (photoState.full) {
+            busy(button, true, "Adding photo…");
+            await api("/api/shots/" + result.shot.id + "/photo", {
+              method: "POST",
+              body: {
+                full: photoState.full,
+                thumb: photoState.thumb,
+                width: photoState.width,
+                height: photoState.height
+              }
+            });
+          } else if (photoState.removed && photoState.existing) {
+            await api("/api/shots/" + result.shot.id + "/photo", { method: "DELETE" });
+          }
+        } catch (photoErr) {
+          photoError = photoErr;
+        }
+
+        await refreshAll();
+        if (photoError) {
+          toast("Visit saved, but the photo didn’t upload", "error");
+        } else {
+          toast(shot ? "Café visit updated" : "Café visit logged");
+        }
+        location.hash = "#/history/" + result.shot.id;
+      } catch (err) {
+        if (err.offline && !shot) {
+          try {
+            await enqueueShot(payload, photoState);
+            toast("Saved on this device — it uploads when Crema is back");
+            location.hash = "#/history";
+            return;
+          } catch (queueErr) {
+            busy(button, false);
+            toast("Couldn’t save that offline — " + queueErr.message, "error");
+            return;
+          }
+        }
+        busy(button, false);
+        toast(err.message, "error");
+      }
+    });
+  }
+
   function field(name, label, value, unit, step, fieldName) {
     var attr = fieldName || name;
     var input = '<input type="text" inputmode="' + (unit ? "decimal" : "text") + '" id="' + name + '" name="' + attr + '"' +
@@ -1832,7 +2044,7 @@
       if (!q) return true;
       var haystack = [
         shot.bean_name, shot.bean_roaster, shot.method, shot.grind, shot.machine, shot.grinder,
-        shot.tasting_notes, shot.notes, shot.cafe_name, (shot.flavor_tags || []).join(" ")
+        shot.tasting_notes, shot.notes, shot.cafe_name, shot.drink_name, (shot.flavor_tags || []).join(" ")
       ].join(" ").toLowerCase();
       return haystack.indexOf(q) !== -1;
     });
@@ -1849,6 +2061,7 @@
           METHODS.map(function (m) { return '<option value="' + esc(m) + '"' + (state.historyMethod === m ? " selected" : "") + '>' + esc(titleCase(m)) + '</option>'; }).join("") +
         '</select>' +
         '<button class="btn btn-ghost" id="history-fav" style="' + (state.historyFavorite ? "border-color:var(--clay);color:var(--clay)" : "") + '">' + icon("star") + 'Favourites</button>' +
+        '<a class="btn btn-ghost" href="#/cafe">' + icon("cafe") + 'Log a café visit</a>' +
         '<span class="count">' + list.length + ' ' + (list.length === 1 ? "entry" : "entries") + '</span>' +
       '</div>' +
       '<div id="history-list">' + historyList(list) + '</div>';
@@ -1910,6 +2123,11 @@
 
     var details = [];
     function add(label, value) { if (value !== null && value !== undefined && value !== "" && value !== "—") details.push('<div><div class="k">' + esc(label) + '</div><div class="v">' + esc(value) + '</div></div>'); }
+    if (shot.is_cafe) {
+      add("Where", shot.cafe_name);
+      add("Ordered", shot.drink_name);
+      add("Style", titleCase(shot.method));
+    }
     add("Dose", shot.dose_g ? grams(shot.dose_g) : "");
     add("Yield", shot.yield_g ? grams(shot.yield_g) : "");
     add("Ratio", ratio(shot) || "");
@@ -1935,10 +2153,10 @@
       '<div class="shot-head">' +
         '<div class="shot-date"><div class="d">' + date.getDate() + '</div><div class="m">' + MONTHS[date.getMonth()] + '</div></div>' +
         '<div class="shot-main">' +
-          '<div class="top"><h4>' + esc(shot.bean_name || (shot.is_cafe ? "Out for coffee" : "No bean recorded")) + '</h4>' +
+          '<div class="top"><h4>' + esc(shot.is_cafe ? (shot.cafe_name || "Out for coffee") : (shot.bean_name || "No bean recorded")) + '</h4>' +
             '<span class="pill">' + esc(titleCase(shot.method)) + '</span>' +
-            (shot.is_cafe ? '<span class="pill line">' + icon("cup") + (shot.cafe_name ? esc(shot.cafe_name) : "At a café") + '</span>' : "") +
-            (shot.favorite ? '<span class="pill clay">Favourite</span>' : "") +
+            (shot.is_cafe && shot.drink_name ? '<span class="pill line">' + icon("cup") + esc(shot.drink_name) + '</span>' : "") +
+            (shot.favorite ? '<span class="pill clay">' + (shot.is_cafe ? "Would go back" : "Favourite") + '</span>' : "") +
           '</div>' +
           '<div class="meta">' + esc(meta.join(" · ")) + '</div>' +
           '<div class="meta" style="margin-top:3px">' + esc(fmtDateTime(shot.brewed_at)) + '</div>' +
@@ -1958,8 +2176,8 @@
         (shot.tasting_notes ? '<div class="notes-block"><div class="k">Tasting notes</div>' + esc(shot.tasting_notes) + '</div>' : "") +
         (shot.notes ? '<div class="notes-block"><div class="k">Notes</div>' + esc(shot.notes) + '</div>' : "") +
         '<div class="shot-actions">' +
-          '<a class="btn btn-ghost btn-sm" href="#/log/' + shot.id + '">' + icon("edit") + 'Edit</a>' +
-          '<button class="btn btn-ghost btn-sm" data-fav="' + shot.id + '">' + icon("star") + (shot.favorite ? "Unfavourite" : "Favourite") + '</button>' +
+          '<a class="btn btn-ghost btn-sm" href="' + (shot.is_cafe ? "#/cafe/" : "#/log/") + shot.id + '">' + icon("edit") + 'Edit</a>' +
+          '<button class="btn btn-ghost btn-sm" data-fav="' + shot.id + '">' + icon("star") + (shot.favorite ? (shot.is_cafe ? "Not again" : "Unfavourite") : (shot.is_cafe ? "Would go back" : "Favourite")) + '</button>' +
           '<button class="btn btn-danger btn-sm" data-del="' + shot.id + '">' + icon("trash") + 'Delete</button>' +
         '</div>' +
       '</div>' +
@@ -2326,7 +2544,7 @@
             '<div class="about-list">' +
               '<div><strong>Crema</strong> · a small coffee journal</div>' +
               '<div>Stored on this home server’s own drive, available to any device you sign in from.</div>' +
-              '<div>Version 1.1.0 · bags, café log, offline queue</div>' +
+              '<div>Version 1.2.0 · café visits, bags, offline queue</div>' +
             '</div>' +
             '<div class="divider"></div>' +
             '<button class="btn btn-danger" id="sign-out">' + icon("logout") + 'Sign out</button>' +

@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS shots (
     favorite        INTEGER NOT NULL DEFAULT 0,
     is_cafe         INTEGER NOT NULL DEFAULT 0,
     cafe_name       TEXT NOT NULL DEFAULT '',
+    drink_name      TEXT NOT NULL DEFAULT '',
     client_id       TEXT NOT NULL DEFAULT '',
     brewed_at       TEXT NOT NULL,
     created_at      TEXT NOT NULL,
@@ -190,6 +191,7 @@ def ensure_db() -> None:
             add_missing("shots", {
                 "is_cafe": "INTEGER NOT NULL DEFAULT 0",
                 "cafe_name": "TEXT NOT NULL DEFAULT ''",
+                "drink_name": "TEXT NOT NULL DEFAULT ''",
                 "client_id": "TEXT NOT NULL DEFAULT ''",
             })
             conn.execute(
@@ -486,6 +488,7 @@ def shot_payload(row) -> dict:
         "favorite": bool(row["favorite"]),
         "is_cafe": bool(row["is_cafe"]) if "is_cafe" in keys else False,
         "cafe_name": row["cafe_name"] if "cafe_name" in keys else "",
+        "drink_name": row["drink_name"] if "drink_name" in keys else "",
         "brewed_at": row["brewed_at"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -1081,12 +1084,14 @@ def read_shot(data: dict, user_id: int, existing=None) -> dict:
         "basket": clean_text(pick("basket", ""), 120),
         "is_cafe": clean_bool(pick("is_cafe", 0)),
         "cafe_name": clean_text(pick("cafe_name", ""), 120),
+        "drink_name": clean_text(pick("drink_name", ""), 160),
         "flavor_tags": json.dumps(cleaned_tags),
         "favorite": clean_bool(pick("favorite", 0)),
         "brewed_at": clean_iso_datetime(pick("brewed_at")),
     }
     if not values["is_cafe"]:
         values["cafe_name"] = ""
+        values["drink_name"] = ""
     for field, (minimum, maximum) in SHOT_NUMBER_FIELDS.items():
         values[field] = clean_number(pick(field), minimum, maximum)
     values["rating"] = clean_rating(pick("rating"))
@@ -1418,7 +1423,7 @@ def export_csv():
         ("flavor_tags", "Flavor tags"), ("tasting_notes", "Tasting notes"),
         ("notes", "Notes"), ("machine", "Machine"), ("grinder", "Grinder"),
         ("basket", "Basket"), ("favorite", "Favorite"), ("is_cafe", "At a café"),
-        ("cafe_name", "Place"),
+        ("cafe_name", "Place"), ("drink_name", "What I ordered"),
     ]
     buffer = io.StringIO()
     writer = csv.writer(buffer)

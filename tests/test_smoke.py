@@ -230,6 +230,7 @@ class CremaSmokeTest(unittest.TestCase):
                 "method": "flat white",
                 "is_cafe": True,
                 "cafe_name": "Prufrock",
+                "drink_name": "Oat flat white",
                 "rating": 5,
                 "dose_g": 20,
                 "brewed_at": "2026-02-01T10:00:00Z",
@@ -239,6 +240,17 @@ class CremaSmokeTest(unittest.TestCase):
         entry = cafe.get_json()["shot"]
         self.assertTrue(entry["is_cafe"])
         self.assertEqual(entry["cafe_name"], "Prufrock")
+        self.assertEqual(entry["drink_name"], "Oat flat white")
+
+        edited = self.owner.patch(
+            f"/api/shots/{entry['id']}",
+            json={"drink_name": "Cortado", "favorite": True},
+        )
+        self.assertEqual(edited.status_code, 200, edited.get_json())
+        edited_entry = edited.get_json()["shot"]
+        self.assertTrue(edited_entry["is_cafe"])
+        self.assertEqual(edited_entry["drink_name"], "Cortado")
+        self.assertTrue(edited_entry["favorite"])
 
         after = self.owner.get("/api/stats").get_json()
         self.assertEqual(after["total_shots"], before["total_shots"])
@@ -254,15 +266,19 @@ class CremaSmokeTest(unittest.TestCase):
         listing = self.owner.get("/api/shots").get_json()["shots"]
         self.assertTrue(any(shot["id"] == entry["id"] for shot in listing))
         self.assertIn("At a café", self.owner.get("/api/export.csv").get_data(as_text=True))
+        self.assertIn("What I ordered", self.owner.get("/api/export.csv").get_data(as_text=True))
+        self.assertIn("Cortado", self.owner.get("/api/export.csv").get_data(as_text=True))
         self.assertEqual(self.owner.get("/api/export.pdf").status_code, 200)
 
         # A place only means something when the shot is marked as a café one.
         plain = self.owner.post(
-            "/api/shots", json={"method": "espresso", "cafe_name": "Ignored"}
+            "/api/shots",
+            json={"method": "espresso", "cafe_name": "Ignored", "drink_name": "Ignored too"},
         )
         self.assertEqual(plain.status_code, 201, plain.get_json())
         self.assertFalse(plain.get_json()["shot"]["is_cafe"])
         self.assertEqual(plain.get_json()["shot"]["cafe_name"], "")
+        self.assertEqual(plain.get_json()["shot"]["drink_name"], "")
 
     def test_11_client_id_makes_retries_safe(self):
         payload = {
@@ -402,6 +418,7 @@ class CremaSmokeTest(unittest.TestCase):
             self.assertIn("bag_size_g", result.stdout)
             self.assertIn("is_cafe", result.stdout)
             self.assertIn("cafe_name", result.stdout)
+            self.assertIn("drink_name", result.stdout)
             self.assertIn("client_id", result.stdout)
             self.assertIn("idx_shots_client", result.stdout)
 

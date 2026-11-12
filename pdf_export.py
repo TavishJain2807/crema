@@ -568,6 +568,8 @@ def _detail_table(shot, styles):
         if value not in (None, "", "—"):
             pairs.append((label, value))
 
+    if shot.get("is_cafe"):
+        add("Ordered", shot.get("drink_name"))
     add("Dose", _grams(shot.get("dose_g")) if shot.get("dose_g") else "")
     add("Yield", _grams(shot.get("yield_g")) if shot.get("yield_g") else "")
     add("Ratio", _ratio(shot))

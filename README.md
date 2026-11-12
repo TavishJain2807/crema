@@ -14,13 +14,17 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 | --- | --- |
 | ![Dashboard](docs/screenshots/dashboard.png) | ![History](docs/screenshots/history.png) |
 
-| Logging a shot | Beans and stock |
+| Logging a shot | At a café |
 | --- | --- |
-| ![Log a shot](docs/screenshots/log-shot.png) | ![Beans](docs/screenshots/beans.png) |
+| ![Log a shot](docs/screenshots/log-shot.png) | ![Café log](docs/screenshots/cafe-log.png) |
 
-| Profile and settings | Sign in |
+| Beans and stock | Profile and settings |
 | --- | --- |
-| ![Settings](docs/screenshots/settings.png) | ![Sign in](docs/screenshots/sign-in.png) |
+| ![Beans](docs/screenshots/beans.png) | ![Settings](docs/screenshots/settings.png) |
+
+| Café visits on mobile | Sign in |
+| --- | --- |
+| ![Café log on mobile](docs/screenshots/cafe-log-mobile.png) | ![Sign in](docs/screenshots/sign-in.png) |
 
 ## Features
 
@@ -28,7 +32,7 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 - **Brew timer with dial-in advice.** Pick a style — ristretto, single, double, lungo — and the target time, dose, and yield set themselves to match. Start it as the pump kicks in; stopping it fills in shot time. The notes underneath measure the shot against that style and suggest a grind change or a yield correction in plain words.
 - **Tasting notes that stay useful.** Rating, free-text notes, flavour tags, and five balance sliders (acidity, body, sweetness, bitterness, aftertaste).
 - **Bag stock.** Give a bag its size in grams and Crema works out what is left and roughly how many shots remain, using your average dose for that coffee. The dashboard points at the open bag that will go stale first.
-- **Café log.** Mark a coffee you drank out with the place you had it. Café entries stay in the journal but never move your averages, dial-in advice, or brewing stats.
+- **Café log.** A separate page for coffee you drank out: the place, what you ordered, the drink style, a photo, tasting notes, and whether you would go back. Café visits stay in the journal but never move your averages, dial-in advice, or brewing stats.
 - **Offline writes.** Log a shot with no signal; it is queued on the device and uploaded when Crema is reachable. A client id per entry keeps retries from logging it twice.
 - **Photos.** Attach one photo per shot — the cup, the bag, or the dial-in.
 - **Your own profile picture.** Upload it from settings; it appears in the sidebar and stays on your own disk.
