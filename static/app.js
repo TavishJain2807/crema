@@ -59,7 +59,10 @@
     star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><path d="m12 3.6 2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8L12 3.6Z"/></svg>',
     starOutline: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="m12 3.6 2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8L12 3.6Z"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 6.5"/></svg>',
-    camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.6h3.2l1.4-2.1h6.8l1.4 2.1H20v10.2H4z"/><circle cx="12" cy="13.4" r="3.2"/></svg>'
+    camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.6h3.2l1.4-2.1h6.8l1.4 2.1H20v10.2H4z"/><circle cx="12" cy="13.4" r="3.2"/></svg>',
+    timer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.6" r="7.6"/><path d="M12 10.2v3.6l2.6 1.7"/><path d="M9.2 2.6h5.6"/><path d="M18.6 5.2l1.5 1.5"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8.4 5.3a1 1 0 0 1 1.5-.9l9 6.7a1 1 0 0 1 0 1.8l-9 6.7a1 1 0 0 1-1.5-.9z"/></svg>',
+    stop: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.4" y="6.4" width="11.2" height="11.2" rx="2.2"/></svg>'
   };
 
   // ------------------------------------------------------------ utilities
@@ -98,6 +101,54 @@
     if (!shot || !shot.dose_g || !shot.yield_g) return null;
     var r = shot.yield_g / shot.dose_g;
     return r >= 10 ? "1:" + Math.round(r) : "1:" + r.toFixed(1);
+  }
+
+  // Turns the three numbers people actually know (dose, yield, time) into
+  // plain advice they can act on before the next shot.
+  var ESPRESSO_METHODS = ["espresso", "latte", "cappuccino", "flat white"];
+
+  function dialInNotes(doseValue, yieldValue, timeValue, method) {
+    var dose = parseFloat(doseValue);
+    var yieldG = parseFloat(yieldValue);
+    var time = parseFloat(timeValue);
+    var notes = [];
+    var isEspresso = ESPRESSO_METHODS.indexOf(method || "espresso") !== -1;
+    var ratioValue = dose > 0 && yieldG > 0 ? yieldG / dose : null;
+
+    if (!isEspresso) {
+      if (ratioValue !== null) {
+        var label = "1:" + (ratioValue >= 10 ? Math.round(ratioValue) : ratioValue.toFixed(1));
+        if (ratioValue < 12) notes.push({ kind: "warn", text: "That is " + label + " — strong for filter. Most pour-over lands around 1:15 to 1:17." });
+        else if (ratioValue > 18) notes.push({ kind: "warn", text: label + " is thin for filter. Try 1:15 to 1:17 and taste again." });
+        else notes.push({ kind: "ok", text: label + " sits in the usual filter range." });
+      }
+      return notes;
+    }
+
+    if (ratioValue !== null) {
+      if (ratioValue < 1.7) notes.push({ kind: "warn", text: "Yield is 1:" + ratioValue.toFixed(1) + " — short of the 1:2 baseline. Expect a syrupy, under-extracted shot; let it run longer." });
+      else if (ratioValue > 2.4) notes.push({ kind: "warn", text: "Yield is 1:" + ratioValue.toFixed(1) + " — long for a double. It usually tastes thin and bitter; stop a little earlier." });
+      else notes.push({ kind: "ok", text: "Yield is 1:" + ratioValue.toFixed(1) + ", close to the classic 1:2." });
+    }
+
+    if (time > 0) {
+      if (time < 20) notes.push({ kind: "warn", text: time.toFixed(1) + "s is a fast shot. Grind finer in small steps and keep the dose steady." });
+      else if (time > 32) notes.push({ kind: "warn", text: time.toFixed(1) + "s is slow. Grind coarser a notch; if it still stalls, check for channeling." });
+      else if (time >= 25 && time <= 30) notes.push({ kind: "ok", text: time.toFixed(1) + "s sits right in the 25–30s window." });
+      else notes.push({ kind: "ok", text: time.toFixed(1) + "s is close to the usual window — a small grind tweak if the taste asks for it." });
+    }
+
+    if (ratioValue !== null && time > 0) {
+      if (time < 20 && ratioValue < 1.8) notes.push({ kind: "tip", text: "Fast and short together point at the grind: go finer before changing anything else." });
+      if (time > 32 && ratioValue > 2.2) notes.push({ kind: "tip", text: "Slow and long: coarsen the grind, then stop the shot at 1:2." });
+      if (time < 20 && ratioValue > 2.4) notes.push({ kind: "tip", text: "Fast but long means the grind is too coarse — tightening it fixes both numbers at once." });
+      if (time > 32 && ratioValue < 1.8) notes.push({ kind: "tip", text: "Slow but short usually means channeling or a choked puck. Work on puck prep before the grind." });
+      var flow = yieldG / time;
+      if (flow < 0.8) notes.push({ kind: "tip", text: "Flow is about " + flow.toFixed(1) + " g/s — restrained, so expect a heavier body." });
+      else if (flow > 1.8) notes.push({ kind: "tip", text: "Flow is about " + flow.toFixed(1) + " g/s — quick, so the puck is offering little resistance." });
+    }
+
+    return notes.slice(0, 6);
   }
 
   function stars(value, outline) {
@@ -140,6 +191,15 @@
 
   function initials(name) {
     return String(name || "?").trim().split(/\s+/).slice(0, 2).map(function (p) { return p.charAt(0).toUpperCase(); }).join("");
+  }
+
+  function avatarHtml(user, extra) {
+    var cls = "avatar" + (extra ? " " + extra : "");
+    var avatar = user && user.avatar;
+    if (avatar && avatar.url) {
+      return '<span class="' + cls + ' has-photo"><img src="' + esc(avatar.url) + '" alt=""></span>';
+    }
+    return '<span class="' + cls + '">' + esc(initials(user ? user.name : "")) + "</span>";
   }
 
   function titleCase(value) {
@@ -614,7 +674,7 @@
           '</nav>' +
           '<div class="sidebar-foot">' +
             '<div class="user-chip">' +
-              '<span class="avatar">' + esc(initials(user.name)) + '</span>' +
+              avatarHtml(user) +
               '<span class="who"><strong>' + esc(user.name) + '</strong><span>' + esc(user.email) + '</span></span>' +
             '</div>' +
             '<div class="sidebar-note">A quiet record of good coffee.</div>' +
@@ -930,6 +990,24 @@
       '<form id="shot-form" novalidate>' +
         '<div class="log-grid">' +
           '<div class="section-stack">' +
+            '<section class="form-card card timer-card">' +
+              '<div class="timer-head">' +
+                '<div><h3>Brew timer</h3><p class="sub">Start it as the pump kicks in.</p></div>' +
+                '<label class="timer-target" for="timer-target">Target <input type="text" inputmode="decimal" id="timer-target" value="27" aria-label="Target shot time in seconds"> s</label>' +
+              '</div>' +
+              '<div class="timer-display" id="timer-display">0:00.0</div>' +
+              '<div class="timer-controls">' +
+                '<button type="button" class="btn btn-primary timer-btn" id="timer-toggle">' + icon("play") + '<span>Start</span></button>' +
+                '<button type="button" class="btn btn-quiet" id="timer-reset">Reset</button>' +
+              '</div>' +
+              '<div class="dialin" id="dialin" hidden>' +
+                '<div class="dialin-head"><strong>Dial-in notes</strong>' +
+                  '<button type="button" class="btn btn-quiet btn-sm" id="dialin-copy">Add to notes</button>' +
+                '</div>' +
+                '<ul id="dialin-list"></ul>' +
+              '</div>' +
+            '</section>' +
+
             '<section class="form-card card">' +
               '<h3>Photo</h3><p class="sub">A picture of the shot, the bag, or the moment.</p>' +
               '<div class="photo-field">' +
@@ -1075,6 +1153,7 @@
         $$("#method-seg button").forEach(function (b) { b.classList.toggle("active", b === btn); });
         var milkCard = $("#milk-card");
         if (milkCard) milkCard.hidden = MILK_METHODS.indexOf(method) === -1;
+        paintDialIn();
       });
     });
 
@@ -1087,11 +1166,96 @@
       var flowEl = $("#flow-out");
       ratioEl.textContent = dose > 0 && yieldG > 0 ? (yieldG / dose >= 10 ? "1:" + Math.round(yieldG / dose) : "1:" + (yieldG / dose).toFixed(1)) : "—";
       flowEl.textContent = yieldG > 0 && time > 0 ? (yieldG / time).toFixed(1) : "—";
+      paintDialIn();
     }
     ["dose_g", "yield_g", "time_s"].forEach(function (id) {
       var input = $("#" + id);
       if (input) input.addEventListener("input", updateReadout);
     });
+
+    function paintDialIn() {
+      var panel = $("#dialin");
+      var list = $("#dialin-list");
+      if (!panel || !list) return;
+      var notes = dialInNotes($("#dose_g").value, $("#yield_g").value, $("#time_s").value, method);
+      panel.hidden = !notes.length;
+      list.innerHTML = notes.map(function (note) {
+        return '<li class="' + esc(note.kind || "tip") + '">' + esc(note.text) + '</li>';
+      }).join("");
+    }
+
+    // brew timer — counts up, writes the elapsed time into the shot time field
+    var timerDisplay = $("#timer-display");
+    var timerToggle = $("#timer-toggle");
+    var timerTarget = $("#timer-target");
+    var timerState = { running: false, startedAt: 0, elapsed: 0, frame: 0 };
+
+    function formatElapsed(ms) {
+      var total = ms / 1000;
+      var minutes = Math.floor(total / 60);
+      var seconds = total - minutes * 60;
+      return minutes + ":" + (seconds < 10 ? "0" : "") + seconds.toFixed(1);
+    }
+
+    function paintTimer() {
+      var ms = timerState.running ? timerState.elapsed + (performance.now() - timerState.startedAt) : timerState.elapsed;
+      timerDisplay.textContent = formatElapsed(ms);
+      var target = parseFloat(timerTarget.value);
+      timerDisplay.classList.toggle("over", target > 0 && ms / 1000 > target);
+      return ms;
+    }
+
+    function timerTick() {
+      if (!timerState.running) return;
+      paintTimer();
+      timerState.frame = requestAnimationFrame(timerTick);
+    }
+
+    function setTimerIdle() {
+      timerToggle.classList.remove("running");
+      timerToggle.innerHTML = icon("play") + "<span>Start</span>";
+    }
+
+    timerToggle.addEventListener("click", function () {
+      if (timerState.running) {
+        timerState.elapsed += performance.now() - timerState.startedAt;
+        timerState.running = false;
+        cancelAnimationFrame(timerState.frame);
+        setTimerIdle();
+        paintTimer();
+        var seconds = timerState.elapsed / 1000;
+        if (seconds >= 0.5) {
+          $("#time_s").value = seconds.toFixed(1);
+          $("#time_s").dispatchEvent(new Event("input", { bubbles: true }));
+          haptic();
+        }
+      } else {
+        timerState.startedAt = performance.now();
+        timerState.running = true;
+        timerToggle.classList.add("running");
+        timerToggle.innerHTML = icon("stop") + "<span>Stop</span>";
+        timerTick();
+      }
+    });
+
+    $("#timer-reset").addEventListener("click", function () {
+      timerState.running = false;
+      cancelAnimationFrame(timerState.frame);
+      timerState.elapsed = 0;
+      setTimerIdle();
+      paintTimer();
+    });
+
+    $("#dialin-copy").addEventListener("click", function () {
+      var notesEl = $("#notes");
+      var lines = $$("#dialin-list li").map(function (li) { return "• " + li.textContent; }).join("\n");
+      if (!lines) return;
+      notesEl.value = (notesEl.value ? notesEl.value.replace(/\s*$/, "") + "\n" : "") + lines;
+      notesEl.dispatchEvent(new Event("input", { bubbles: true }));
+      toast("Notes added");
+    });
+
+    paintTimer();
     updateReadout();
 
     // tags
@@ -1733,9 +1897,15 @@
         '<div class="section-stack">' +
           '<section class="card card-pad">' +
             '<div class="profile-head">' +
-              '<span class="avatar">' + esc(initials(user.name)) + '</span>' +
+              avatarHtml(user, "avatar-lg") +
               '<div><div class="n">' + esc(user.name) + '</div><div class="e">' + esc(user.email) + '</div></div>' +
             '</div>' +
+            '<div class="avatar-actions">' +
+              '<label class="btn btn-ghost btn-sm" for="avatar-input">' + icon("camera") + 'Change photo</label>' +
+              '<input type="file" id="avatar-input" accept="image/*" hidden>' +
+              (user.avatar ? '<button class="btn btn-quiet btn-sm" id="avatar-remove" type="button">Remove</button>' : '') +
+            '</div>' +
+            '<p class="small muted avatar-hint">A square photo works best. It stays on your own server.</p>' +
             '<form id="profile-form" class="form-grid">' +
               '<div class="field span-2"><label for="profile-name">Display name</label><input type="text" id="profile-name" name="name" autocomplete="name" value="' + esc(user.name) + '"></div>' +
               '<div class="field span-2"><label for="profile-email">Email</label><input type="email" id="profile-email" value="' + esc(user.email) + '" disabled></div>' +
@@ -1803,6 +1973,43 @@
         toast("Profile saved");
       } catch (err) { busy(button, false); toast(err.message, "error"); }
     });
+
+    var avatarInput = $("#avatar-input");
+    if (avatarInput) {
+      avatarInput.addEventListener("change", async function (event) {
+        var file = event.target.files && event.target.files[0];
+        if (!file) return;
+        try {
+          var prepared = await compressPhoto(file);
+          var data = await api("/api/me/avatar", { method: "POST", body: { photo: prepared.thumb } });
+          state.user = data.user;
+          haptic();
+          toast("Profile photo updated");
+          renderShell();
+          route();
+        } catch (err) {
+          event.target.value = "";
+          toast(err.message, "error");
+        }
+      });
+    }
+
+    var avatarRemove = $("#avatar-remove");
+    if (avatarRemove) {
+      avatarRemove.addEventListener("click", async function () {
+        busy(avatarRemove, true);
+        try {
+          var data = await api("/api/me/avatar", { method: "DELETE" });
+          state.user = data.user;
+          toast("Profile photo removed");
+          renderShell();
+          route();
+        } catch (err) {
+          busy(avatarRemove, false);
+          toast(err.message, "error");
+        }
+      });
+    }
 
     $("#defaults-form").addEventListener("submit", async function (event) {
       event.preventDefault();

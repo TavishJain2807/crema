@@ -138,6 +138,38 @@ class CremaSmokeTest(unittest.TestCase):
 
         self.owner.post("/api/admin/registration", json={"registration_approval": True})
 
+    def test_07_profile_photo(self):
+        # 1x1 JPEG — enough to exercise validation, storage and serving.
+        tiny = (
+            "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRof"
+            "Hh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAAB"
+            "AAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=="
+        )
+
+        rejected = self.owner.post("/api/me/avatar", json={"photo": "not-an-image"})
+        self.assertEqual(rejected.status_code, 400, rejected.get_json())
+
+        response = self.owner.post(
+            "/api/me/avatar", json={"photo": "data:image/jpeg;base64," + tiny}
+        )
+        self.assertEqual(response.status_code, 201, response.get_json())
+        avatar = response.get_json()["user"]["avatar"]
+        self.assertIsNotNone(avatar)
+        self.assertIn("/api/me/avatar", avatar["url"])
+
+        image = self.owner.get("/api/me/avatar")
+        self.assertEqual(image.status_code, 200)
+        self.assertEqual(image.mimetype, "image/jpeg")
+        image.close()
+
+        # The avatar belongs to one account only.
+        self.assertEqual(self.stranger.get("/api/me/avatar").status_code, 401)
+
+        removed = self.owner.delete("/api/me/avatar")
+        self.assertEqual(removed.status_code, 200, removed.get_json())
+        self.assertIsNone(removed.get_json()["user"]["avatar"])
+        self.assertEqual(self.owner.get("/api/me/avatar").status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1061,3 +1061,74 @@ input:disabled {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* ---------------------------------------------------------------- profile photo */
+
+.avatar.has-photo {
+  padding: 0;
+  overflow: hidden;
+  background: var(--cream-deep);
+}
+.avatar.has-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: inherit;
+}
+.profile-head .avatar-lg { width: 68px; height: 68px; font-size: 24px; }
+.avatar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.avatar-actions label.btn { cursor: pointer; }
+.avatar-actions .btn svg { width: 15px; height: 15px; }
+.avatar-hint { margin-bottom: 18px; }
+
+/* ---------------------------------------------------------------- brew timer */
+
+.timer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.timer-head h3 { font-family: var(--serif); font-size: 20px; font-weight: 500; letter-spacing: -.01em; }
+.timer-head .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.timer-target {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted); white-space: nowrap; padding-top: 4px;
+}
+.timer-target input {
+  width: 54px; padding: 6px 8px; text-align: center;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  background: var(--paper); color: var(--ink);
+  font-family: var(--sans); font-size: 14px; font-weight: 600;
+}
+.timer-display {
+  font-family: var(--serif);
+  font-size: clamp(46px, 9vw, 66px);
+  line-height: 1;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  padding: 16px 0 12px;
+  color: var(--ink);
+  transition: color .25s ease;
+}
+.timer-display.over { color: var(--clay); }
+.timer-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.timer-btn { min-width: 128px; justify-content: center; }
+.timer-btn svg { width: 15px; height: 15px; }
+.timer-btn.running { background: var(--clay-deep); }
+
+.dialin { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.dialin-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dialin-head strong {
+  font-size: 12px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.dialin ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.dialin li {
+  position: relative; padding-left: 19px;
+  font-size: 13.5px; line-height: 1.5; color: var(--ink-soft);
+}
+.dialin li::before {
+  content: ""; position: absolute; left: 3px; top: 8px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--line-strong);
+}
+.dialin li.ok::before { background: var(--olive); }
+.dialin li.warn::before { background: var(--clay); }
+.dialin li.tip::before { background: var(--clay-deep); }

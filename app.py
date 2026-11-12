@@ -160,8 +160,14 @@ def ensure_db() -> None:
         try:
             conn.executescript(SCHEMA)
             columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-            if "status" not in columns:
-                conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            for column, definition in (
+                ("status", "TEXT NOT NULL DEFAULT 'active'"),
+                ("avatar_file", "TEXT NOT NULL DEFAULT ''"),
+                ("avatar_mime", "TEXT NOT NULL DEFAULT ''"),
+                ("avatar_updated_at", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {column} {definition}")
             conn.execute(
                 "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('registration_approval', ?)",
                 ("1" if ADMIN_EMAIL else "0",),
@@ -364,11 +370,20 @@ def user_payload(row) -> dict:
         prefs = json.loads(row["preferences"] or "{}")
     except (ValueError, TypeError):
         prefs = {}
+    keys = row.keys()
+    avatar = None
+    if "avatar_updated_at" in keys and row["avatar_updated_at"]:
+        version = re.sub(r"[^0-9]", "", str(row["avatar_updated_at"]))[-14:]
+        avatar = {
+            "url": f"/api/me/avatar?v={version}",
+            "added_at": row["avatar_updated_at"],
+        }
     return {
         "id": row["id"],
         "email": row["email"],
         "name": row["name"],
         "preferences": prefs,
+        "avatar": avatar,
         "created_at": row["created_at"],
     }
 
@@ -706,6 +721,74 @@ def update_me():
         conn.commit()
 
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+    return jsonify({"user": me_payload(row)})
+
+
+@app.post("/api/me/avatar")
+@login_required
+def upload_avatar():
+    user = current_user()
+    data = body()
+    try:
+        raw, ext, mime = decode_photo(data.get("photo"), MAX_PHOTO)
+    except ValueError as exc:
+        return fail(str(exc))
+
+    conn = db()
+    filename = f"avatar-{user['id']}-{secrets.token_hex(8)}.{ext}"
+    written = False
+    try:
+        with open(photo_path(filename), "wb") as fh:
+            fh.write(raw)
+        written = True
+        conn.execute(
+            "UPDATE users SET avatar_file = ?, avatar_mime = ?, avatar_updated_at = ? WHERE id = ?",
+            (filename, mime, iso(utcnow()), user["id"]),
+        )
+        conn.commit()
+    except (OSError, sqlite3.Error) as exc:
+        if written:
+            remove_photo_files([filename])
+        return fail(f"Could not save the photo: {exc}", 500)
+
+    stale = user["avatar_file"] if "avatar_file" in user.keys() else ""
+    if stale:
+        remove_photo_files([stale])
+
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+    g.user = row
+    return jsonify({"user": me_payload(row)}), 201
+
+
+@app.get("/api/me/avatar")
+@login_required
+def get_avatar():
+    user = current_user()
+    filename = user["avatar_file"] if "avatar_file" in user.keys() else ""
+    if not filename or not os.path.isfile(photo_path(filename)):
+        return fail("Photo not found", 404)
+    mime = (user["avatar_mime"] if "avatar_mime" in user.keys() else "") or "image/jpeg"
+    response = send_from_directory(PHOTO_DIR, filename, mimetype=mime, max_age=31536000)
+    response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
+    return response
+
+
+@app.delete("/api/me/avatar")
+@login_required
+def delete_avatar():
+    user = current_user()
+    filename = user["avatar_file"] if "avatar_file" in user.keys() else ""
+    if not filename:
+        return fail("Photo not found", 404)
+    conn = db()
+    conn.execute(
+        "UPDATE users SET avatar_file = '', avatar_mime = '', avatar_updated_at = '' WHERE id = ?",
+        (user["id"],),
+    )
+    conn.commit()
+    remove_photo_files([filename])
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
+    g.user = row
     return jsonify({"user": me_payload(row)})
 
 

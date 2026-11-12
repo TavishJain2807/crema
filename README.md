@@ -14,15 +14,21 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 | --- | --- |
 | ![Dashboard](docs/screenshots/dashboard.png) | ![History](docs/screenshots/history.png) |
 
-| Logging a shot | Sign in |
+| Logging a shot | Profile and settings |
 | --- | --- |
-| ![Log a shot](docs/screenshots/log-shot.png) | ![Sign in](docs/screenshots/sign-in.png) |
+| ![Log a shot](docs/screenshots/log-shot.png) | ![Settings](docs/screenshots/settings.png) |
+
+| Sign in |
+| --- |
+| ![Sign in](docs/screenshots/sign-in.png) |
 
 ## Features
 
 - **Espresso, milk drinks, filter, cold brew.** Dose, yield, ratio, time, grind, temperature, pressure, pre-infusion, machine, grinder, basket.
+- **Brew timer with dial-in advice.** Start it as the pump kicks in; stopping it fills in shot time. The notes under it read dose, yield, and time together and suggest a grind change or a yield correction in plain words.
 - **Tasting notes that stay useful.** Rating, free-text notes, flavour tags, and five balance sliders (acidity, body, sweetness, bitterness, aftertaste).
 - **Photos.** Attach one photo per shot — the cup, the bag, or the dial-in.
+- **Your own profile picture.** Upload it from settings; it appears in the sidebar and stays on your own disk.
 - **Bean cellar.** Roaster, origin, process, varietal, roast level, roast date, and notes, with archive support.
 - **History and stats.** Search past shots, filter by method or bean, and see simple trends.
 - **Dial-in calculator.** Scale a recipe by dose or yield without leaving the page.
