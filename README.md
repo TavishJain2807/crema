@@ -22,9 +22,13 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 | --- | --- |
 | ![Beans](docs/screenshots/beans.png) | ![Settings](docs/screenshots/settings.png) |
 
-| Café visits on mobile | Sign in |
+| Café visits on mobile | Mobile navigation |
 | --- | --- |
-| ![Café log on mobile](docs/screenshots/cafe-log-mobile.png) | ![Sign in](docs/screenshots/sign-in.png) |
+| ![Café log on mobile](docs/screenshots/cafe-log-mobile.png) | ![Mobile navigation](docs/screenshots/mobile-nav.png) |
+
+| More menu | Sign in |
+| --- | --- |
+| ![More menu](docs/screenshots/mobile-more.png) | ![Sign in](docs/screenshots/sign-in.png) |
 
 ## Features
 
@@ -42,7 +46,7 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 - **Exports.** CSV, JSON, or a multi-page designed PDF journal with photos, recipes, tasting notes, balance meters, and a cellar table.
 - **Automatic backups.** Crema writes a consistent zip of the database and photos every night, keeps the last 14, and lets the owner download or trigger one from Settings. Point `rclone` at the folder to copy them into Google Drive.
 - **Accounts.** Each person gets a private journal. The owner account can require approval for new sign-ups.
-- **PWA.** Installable, mobile-first, with offline reading and a queue for new shots.
+- **PWA.** Installable, mobile-first, with offline reading, a queue for new shots, and a five-item mobile bar with a More menu.
 - **Small footprint.** Flask + SQLite, no external database or services. Backups run inside the app process.
 
 ## Quick start

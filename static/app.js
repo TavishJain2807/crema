@@ -46,6 +46,7 @@
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></svg>',
     cup: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h13v4.5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9.5Z"/><path d="M17 10.5h1.3a2.4 2.4 0 0 1 0 4.8H17"/><path d="M7.5 3.5v2.2M11.5 3.5v2.2M15.5 3.5v2.2"/></svg>',
     cafe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10.5M20 20V10.5"/><path d="M3 10.5 4.5 4h15L21 10.5Z"/><path d="M9 20v-5h6v5"/></svg>',
+    more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.4V12l3.1 2"/></svg>',
     bean: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="6.4" ry="8.6" transform="rotate(38 12 12)"/><path d="M9.2 6.6c2.6 3 2.6 7.8 0 10.8"/></svg>',
     calc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="3.5" width="15" height="17" rx="2.4"/><path d="M8 7.8h8"/><path d="M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg>',
@@ -853,9 +854,9 @@
     { id: "log", label: "Log a shot", icon: "cup" },
     { id: "cafe", label: "Café", icon: "cafe" },
     { id: "history", label: "History", icon: "clock" },
-    { id: "beans", label: "Beans", icon: "bean" },
-    { id: "calculator", label: "Calculator", icon: "calc" },
-    { id: "settings", label: "Settings", icon: "gear" }
+    { id: "beans", label: "Beans", icon: "bean", secondary: true },
+    { id: "calculator", label: "Calculator", icon: "calc", secondary: true },
+    { id: "settings", label: "Settings", icon: "gear", secondary: true }
   ];
 
   var TITLES = {
@@ -878,8 +879,11 @@
           '<nav class="nav" aria-label="Main">' +
             '<div class="nav-label">Journal</div>' +
             NAV.map(function (item) {
-              return '<a class="nav-item" data-nav="' + item.id + '" href="#/' + item.id + '">' + icon(item.icon) + '<span>' + item.label + '</span></a>';
+              return '<a class="nav-item' + (item.secondary ? " nav-secondary" : "") + '" data-nav="' + item.id + '" href="#/' + item.id + '">' + icon(item.icon) + '<span>' + item.label + '</span></a>';
             }).join("") +
+            '<button class="nav-item nav-more" id="nav-more" type="button" aria-expanded="false" aria-controls="more-sheet" aria-haspopup="true">' +
+              icon("more") + '<span>More</span>' +
+            '</button>' +
           '</nav>' +
           '<div class="sidebar-foot">' +
             '<div class="user-chip">' +
@@ -904,10 +908,41 @@
             '<div class="view" id="view" tabindex="-1"></div>' +
           '</div>' +
         '</main>' +
+      '</div>' +
+      '<div class="more-backdrop" id="more-backdrop" hidden></div>' +
+      '<div class="more-sheet" id="more-sheet" hidden role="dialog" aria-label="More sections">' +
+        '<div class="more-sheet-head"><span>More</span>' +
+          '<button class="more-close" id="more-close" type="button" aria-label="Close menu">' + icon("x") + '</button>' +
+        '</div>' +
+        '<div class="more-sheet-links">' +
+          NAV.filter(function (item) { return item.secondary; }).map(function (item) {
+            return '<a class="more-link" data-nav="' + item.id + '" href="#/' + item.id + '">' +
+              icon(item.icon) + '<span>' + item.label + '</span></a>';
+          }).join("") +
+        '</div>' +
       '</div>';
 
     $$("[data-nav]").forEach(function (link) {
       link.addEventListener("click", function () { closeModal(); });
+    });
+
+    var moreButton = $("#nav-more");
+    if (moreButton) {
+      moreButton.addEventListener("click", function (event) {
+        event.stopPropagation();
+        setMoreMenu($("#more-sheet").hidden);
+      });
+    }
+    var moreBackdrop = $("#more-backdrop");
+    if (moreBackdrop) moreBackdrop.addEventListener("click", function () { setMoreMenu(false); });
+    var moreClose = $("#more-close");
+    if (moreClose) moreClose.addEventListener("click", function () { setMoreMenu(false); });
+    $$(".more-link").forEach(function (link) {
+      link.addEventListener("click", function () { setMoreMenu(false); });
+    });
+    var moreSheet = $("#more-sheet");
+    if (moreSheet) moreSheet.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") setMoreMenu(false);
     });
 
     var skip = $("#skip-link");
@@ -949,6 +984,30 @@
       if (active) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
+    var more = $("#nav-more");
+    var secondary = NAV.some(function (item) { return item.secondary && item.id === name; });
+    if (more) {
+      more.classList.toggle("active", secondary);
+      if (secondary) more.setAttribute("aria-current", "page");
+      else more.removeAttribute("aria-current");
+    }
+  }
+
+  function setMoreMenu(open) {
+    var button = $("#nav-more");
+    var sheet = $("#more-sheet");
+    var backdrop = $("#more-backdrop");
+    if (!button || !sheet || !backdrop) return;
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    sheet.hidden = !open;
+    backdrop.hidden = !open;
+    document.body.classList.toggle("more-open", open);
+    if (open) {
+      var first = $(".more-link", sheet);
+      if (first) first.focus();
+    } else if (sheet.contains(document.activeElement)) {
+      button.focus();
+    }
   }
 
   // ------------------------------------------------------------ routing
@@ -969,6 +1028,7 @@
       draftFlush = null;
     }
     if (!$("#view")) renderShell();
+    setMoreMenu(false);
 
     var parsed = parseHash();
     if (!TITLES[parsed.name]) parsed.name = "dashboard";
@@ -2544,7 +2604,7 @@
             '<div class="about-list">' +
               '<div><strong>Crema</strong> · a small coffee journal</div>' +
               '<div>Stored on this home server’s own drive, available to any device you sign in from.</div>' +
-              '<div>Version 1.2.0 · café visits, bags, offline queue</div>' +
+              '<div>Version 1.2.1 · a tidier mobile bar</div>' +
             '</div>' +
             '<div class="divider"></div>' +
             '<button class="btn btn-danger" id="sign-out">' + icon("logout") + 'Sign out</button>' +

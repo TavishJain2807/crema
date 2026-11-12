@@ -1,6 +1,6 @@
 /* Crema service worker — network first, with an offline copy of the shell. */
 
-const CACHE = "crema-shell-v7";
+const CACHE = "crema-shell-v8";
 const SHELL = [
   "/",
   "/index.html",
