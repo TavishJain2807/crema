@@ -57,7 +57,7 @@ The image is published on Docker Hub for both `amd64` and `arm64` (Intel/AMD ser
 
 ```bash
 docker run -d --name crema --restart unless-stopped \
-  -p 8788:8788 \
+  -p 8787:8787 \
   -e CREMA_ADMIN_EMAIL=you@example.com \
   -v crema-data:/data \
   tavishjain2807/crema:latest
@@ -76,7 +76,7 @@ services:
     container_name: crema
     restart: unless-stopped
     ports:
-      - "8788:8788"
+      - "8787:8787"
     environment:
       CREMA_ADMIN_EMAIL: you@example.com
       CREMA_PDF_FOOTER: Made at home · Crema
