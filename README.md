@@ -84,7 +84,7 @@ services:
       - ./data:/data
 ```
 
-Pin a version with `tavishjain2807/crema:1.2` (or `:1.2.1`) to avoid surprise upgrades.
+Pin a version with `tavishjain2807/crema:1.2` (or `:1.2.2`) to avoid surprise upgrades.
 
 ### Docker from source
 
