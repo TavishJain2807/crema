@@ -2594,6 +2594,7 @@
           '<section class="card card-pad">' +
             '<div class="card-head"><div><h3>Password</h3><p>Change the key to your journal.</p></div></div>' +
             '<form id="password-form" class="form-grid">' +
+              '<div class="field span-2"><label for="current-password">Current password</label><input type="password" id="current-password" name="current_password" autocomplete="current-password" placeholder="The one you sign in with"></div>' +
               '<div class="field span-2"><label for="new-password">New password</label><input type="password" id="new-password" name="password" autocomplete="new-password" placeholder="At least 8 characters"></div>' +
               '<div class="field span-2"><label for="confirm-password">Confirm new password</label><input type="password" id="confirm-password" name="confirm" autocomplete="new-password" placeholder="Repeat it"></div>' +
               '<div class="span-2"><button class="btn btn-ghost" type="submit">Update password</button></div>' +
@@ -2700,12 +2701,13 @@
     $("#password-form").addEventListener("submit", async function (event) {
       event.preventDefault();
       var form = this;
+      if (!form.current_password.value) { toast("Enter your current password", "error"); return; }
       if (form.password.value.length < 8) { toast("Password must be at least 8 characters", "error"); return; }
       if (form.password.value !== form.confirm.value) { toast("Those passwords don’t match", "error"); return; }
       var button = form.querySelector("button[type=submit]");
       busy(button, true);
       try {
-        await api("/api/me", { method: "PATCH", body: { password: form.password.value } });
+        await api("/api/me", { method: "PATCH", body: { password: form.password.value, current_password: form.current_password.value } });
         form.reset();
         busy(button, false);
         toast("Password updated");

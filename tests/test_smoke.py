@@ -422,6 +422,41 @@ class CremaSmokeTest(unittest.TestCase):
             self.assertIn("client_id", result.stdout)
             self.assertIn("idx_shots_client", result.stdout)
 
+    def test_14_changing_the_password_needs_the_current_one(self):
+        missing = self.owner.patch("/api/me", json={"password": "newpassword1"})
+        self.assertEqual(missing.status_code, 403, missing.get_json())
+
+        wrong = self.owner.patch(
+            "/api/me", json={"password": "newpassword1", "current_password": "not-it"}
+        )
+        self.assertEqual(wrong.status_code, 403, wrong.get_json())
+
+        # A second session with the old password is cut off; this one survives.
+        other = self.app.app.test_client()
+        self.assertEqual(
+            other.post("/api/auth/login", json={"email": OWNER, "password": PASSWORD}).status_code,
+            200,
+        )
+
+        changed = self.owner.patch(
+            "/api/me", json={"password": "newpassword1", "current_password": PASSWORD}
+        )
+        self.assertEqual(changed.status_code, 200, changed.get_json())
+        self.assertEqual(other.get("/api/me").status_code, 401)
+        self.assertEqual(self.owner.get("/api/me").status_code, 200)
+
+        # The old key no longer works.
+        fresh = self.app.app.test_client()
+        old = fresh.post("/api/auth/login", json={"email": OWNER, "password": PASSWORD})
+        self.assertEqual(old.status_code, 401)
+        new = fresh.post("/api/auth/login", json={"email": OWNER, "password": "newpassword1"})
+        self.assertEqual(new.status_code, 200, new.get_json())
+
+        restored = fresh.patch(
+            "/api/me", json={"password": PASSWORD, "current_password": "newpassword1"}
+        )
+        self.assertEqual(restored.status_code, 200, restored.get_json())
+
 
 if __name__ == "__main__":
     unittest.main()

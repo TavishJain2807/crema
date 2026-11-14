@@ -749,9 +749,15 @@ def update_me():
         values.append(json.dumps(cleaned))
 
     if "password" in data:
+        # A session alone should not be enough to take the account over.
+        current = data.get("current_password")
+        if not isinstance(current, str) or not check_password_hash(user["password_hash"], current):
+            return fail("Enter your current password to change it", 403)
         password = data.get("password")
         if not isinstance(password, str) or len(password) < 8:
             return fail("Password must be at least 8 characters")
+        if len(password) > 200:
+            return fail("Password is too long")
         fields.append("password_hash = ?")
         values.append(generate_password_hash(password))
         conn.execute("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?",
