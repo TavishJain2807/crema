@@ -1,6 +1,6 @@
 /* Crema service worker — network first, with an offline copy of the shell. */
 
-const CACHE = "crema-shell-v9";
+const CACHE = "crema-shell-v10";
 const SHELL = [
   "/",
   "/index.html",
@@ -10,7 +10,11 @@ const SHELL = [
   "/icon.svg",
   "/icon-192.png",
   "/icon-512.png",
-  "/apple-touch-icon.png"
+  "/apple-touch-icon.png",
+  "/fonts/Fraunces-latin.woff2",
+  "/fonts/Fraunces-latin-ext.woff2",
+  "/fonts/Inter-latin.woff2",
+  "/fonts/Inter-latin-ext.woff2"
 ];
 
 self.addEventListener("install", (event) => {

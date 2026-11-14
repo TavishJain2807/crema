@@ -1733,8 +1733,9 @@ def security_headers(response):
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     response.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; img-src 'self' data:; connect-src 'self'; "
+        "media-src 'self' blob:; object-src 'none'; "
         "frame-ancestors 'self'; base-uri 'self'; form-action 'self'",
     )
     if request.path.startswith("/api/"):
