@@ -51,7 +51,42 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 
 ## Quick start
 
-### Docker (recommended)
+### Docker, no source needed
+
+The image is published on Docker Hub for both `amd64` and `arm64` (Intel/AMD servers, Raspberry Pi, Apple Silicon):
+
+```bash
+docker run -d --name crema --restart unless-stopped \
+  -p 8787:8787 \
+  -e CREMA_ADMIN_EMAIL=you@example.com \
+  -v crema-data:/data \
+  tavishjain2807/crema:latest
+```
+
+Open <http://localhost:8787>, create your account, and start logging.
+
+That uses a named volume (`crema-data`). To keep the data in a folder you can see and back up, swap the last two lines for `-v "$PWD/crema-data:/data"`.
+
+The same thing in Compose:
+
+```yaml
+services:
+  crema:
+    image: tavishjain2807/crema:latest
+    container_name: crema
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      CREMA_ADMIN_EMAIL: you@example.com
+      CREMA_PDF_FOOTER: Made at home · Crema
+    volumes:
+      - ./data:/data
+```
+
+Pin a version with `tavishjain2807/crema:1.2` (or `:1.2.1`) to avoid surprise upgrades.
+
+### Docker from source
 
 ```bash
 git clone https://github.com/TavishJain2807/crema.git
@@ -59,8 +94,6 @@ cd crema
 cp .env.example .env      # set CREMA_ADMIN_EMAIL to your own address
 docker compose up -d --build
 ```
-
-Open <http://localhost:8787>, create your account, and start logging.
 
 Data lives in `./data` next to `docker-compose.yml`. Back that directory up and you have everything.
 
@@ -244,8 +277,8 @@ Offline mode requires HTTPS (or `localhost`). If the banner says you are offline
 ## Updating
 
 ```bash
-git pull
-docker compose up -d --build     # Docker
+docker pull tavishjain2807/crema:latest && docker compose up -d   # published image
+git pull && docker compose up -d --build                          # from source
 # or: pip install -r requirements.txt && sudo systemctl restart crema
 ```
 
@@ -279,6 +312,7 @@ static/
 ├── fonts/             Fraunces + Inter (SIL OFL)
 └── crema-sample-journal.pdf
 deploy/                systemd unit, Caddyfile, nginx example
+.github/workflows/     smoke tests, Docker Hub publish
 Dockerfile
 docker-compose.yml
 ```
