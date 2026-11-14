@@ -1721,6 +1721,11 @@ def security_headers(response):
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()"
+    )
+    if request.is_secure:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
@@ -1759,4 +1764,4 @@ def too_large(_error):
 
 if __name__ == "__main__":
     ensure_db()
-    app.run(host="127.0.0.1", port=8787, debug=True)
+    app.run(host="127.0.0.1", port=8787, debug=os.environ.get("CREMA_DEBUG") == "1")
