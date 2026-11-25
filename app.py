@@ -578,12 +578,12 @@ _login_attempts: dict[str, list[float]] = {}
 _login_lock = threading.Lock()
 
 
-def rate_limited(key: str) -> bool:
+def rate_limited(key: str, limit: int = 12, window: int = 600) -> bool:
     now = time.time()
     with _login_lock:
-        attempts = [t for t in _login_attempts.get(key, []) if now - t < 600]
+        attempts = [t for t in _login_attempts.get(key, []) if now - t < window]
         _login_attempts[key] = attempts
-        return len(attempts) >= 12
+        return len(attempts) >= limit
 
 
 def note_attempt(key: str):
@@ -596,6 +596,14 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 @app.post("/api/auth/register")
 def register():
+    # Sign-up is the one endpoint that creates rows for anonymous callers, so
+    # it gets its own per-address ceiling. Failures count too: validation spam
+    # should not be free.
+    signup_key = "register:" + (request.remote_addr or "unknown")
+    if rate_limited(signup_key, limit=10, window=3600):
+        return fail("Too many account requests from this address. Try again later.", 429)
+    note_attempt(signup_key)
+
     data = body()
     name = clean_text(data.get("name"), 80)
     email = clean_text(data.get("email"), 160).lower()

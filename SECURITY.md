@@ -16,4 +16,6 @@ Only the latest commit on `main` is supported.
 
 Crema is designed to run behind a TLS-terminating reverse proxy. The bundled Gunicorn configuration binds to localhost. Exposing the Flask development server, or the app port directly to the internet, is not supported.
 
-There is no password-reset flow and no email verification. If you open registration to the public internet, enable the owner approval toggle or add rate limiting at the proxy.
+There is no password-reset flow and no email verification. Sign-in is throttled in the app: twelve failed attempts per address and email in ten minutes get a temporary `429`. Sign-up has its own ceiling of ten requests per hour per address, counting rejected ones, because it is the one endpoint that creates rows for anonymous callers.
+
+If you open registration to the public internet, still enable the owner approval toggle. The in-process counters live in memory and reset when the app restarts, so a proxy-level limit remains worthwhile on a busy host.

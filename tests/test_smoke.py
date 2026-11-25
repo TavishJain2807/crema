@@ -457,6 +457,26 @@ class CremaSmokeTest(unittest.TestCase):
         )
         self.assertEqual(restored.status_code, 200, restored.get_json())
 
+    def test_15_registration_is_rate_limited_per_address(self):
+        # Sign-up creates rows for anonymous callers, so it has its own ceiling.
+        # The bucket already holds the earlier tests' sign-ups, so walk it up
+        # to the limit instead of assuming a clean start.
+        client = self.app.app.test_client()
+        statuses = []
+        for index in range(15):
+            response = client.post(
+                "/api/auth/register",
+                json={"name": "Bulk", "email": f"bulk{index}@example.com", "password": PASSWORD},
+            )
+            statuses.append(response.status_code)
+            if response.status_code == 429:
+                break
+
+        self.assertEqual(statuses[-1], 429, statuses)
+        self.assertIn(statuses[0], (201, 202), statuses)
+        # Leave the bucket clean for anything that runs after this test.
+        self.app._login_attempts.clear()
+
 
 if __name__ == "__main__":
     unittest.main()
