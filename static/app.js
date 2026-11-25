@@ -59,6 +59,7 @@
     archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2"/><path d="M5.2 9v9.3a1.2 1.2 0 0 0 1.2 1.2h11.2a1.2 1.2 0 0 0 1.2-1.2V9"/><path d="M10 12.8h4"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7.5 10.8 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg>',
     repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 8.2h11.8a1.2 1.2 0 0 1 1.2 1.2v3.4"/><path d="m8.6 5.2-2.6 3 2.6 3"/><path d="M17.5 15.8H5.7a1.2 1.2 0 0 1-1.2-1.2v-3.4"/><path d="m15.4 18.8 2.6-3-2.6-3"/></svg>',
+    share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5V4.2"/><path d="m8.3 7.7 3.7-3.5 3.7 3.5"/><path d="M6 12.5v6.3a1.2 1.2 0 0 0 1.2 1.2h9.6a1.2 1.2 0 0 0 1.2-1.2v-6.3"/></svg>',
     logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5H6.8A1.8 1.8 0 0 0 5 6.3v11.4a1.8 1.8 0 0 0 1.8 1.8h7.7"/><path d="M10 12h9.5M16 8.5l3.5 3.5L16 15.5"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><path d="m12 3.6 2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8L12 3.6Z"/></svg>',
@@ -311,6 +312,308 @@
       footer: '<button class="btn btn-quiet" id="photo-close">Close</button>',
       onMount: function () {
         $("#photo-close").addEventListener("click", closeModal);
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------ share card */
+
+  // The card is drawn on a canvas so it needs real faces, not CSS. The .ttf
+  // masters are already served for the PDF tooling, so nothing new is fetched.
+  var cardFonts = null;
+  function loadCardFonts() {
+    if (cardFonts) return cardFonts;
+    if (!window.FontFace) { cardFonts = Promise.resolve(); return cardFonts; }
+    var faces = [
+      ["CremaCardSerif", "fonts/Fraunces-Semibold.ttf"],
+      ["CremaCardSerifSoft", "fonts/Fraunces-Medium.ttf"],
+      ["CremaCardSans", "fonts/Inter-Regular.ttf"],
+      ["CremaCardSansSemi", "fonts/Inter-Semibold.ttf"]
+    ];
+    cardFonts = Promise.all(faces.map(function (pair) {
+      var face = new FontFace(pair[0], "url(" + pair[1] + ")");
+      return face.load().then(function (loaded) { document.fonts.add(loaded); }).catch(function () { /* fall back to system faces */ });
+    }));
+    return cardFonts;
+  }
+
+  function spacedText(ctx, text, x, y, spacing, align) {
+    var chars = Array.from(String(text));
+    var widths = chars.map(function (ch) { return ctx.measureText(ch).width; });
+    var total = widths.reduce(function (a, b) { return a + b; }, 0) + spacing * Math.max(0, chars.length - 1);
+    var cursor = align === "right" ? x - total : x;
+    chars.forEach(function (ch, i) {
+      ctx.fillText(ch, cursor, y);
+      cursor += widths[i] + spacing;
+    });
+    return total;
+  }
+
+  function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  function wrapCanvas(ctx, text, maxWidth, maxLines) {
+    var words = String(text).split(/\s+/).filter(Boolean);
+    var lines = [];
+    var line = "";
+    words.forEach(function (word) {
+      var next = line ? line + " " + word : word;
+      if (ctx.measureText(next).width > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    });
+    if (line) lines.push(line);
+    if (lines.length > maxLines) {
+      lines = lines.slice(0, maxLines);
+      var last = lines[maxLines - 1];
+      while (last.length > 1 && ctx.measureText(last + "…").width > maxWidth) last = last.slice(0, -1);
+      lines[maxLines - 1] = last + "…";
+    }
+    return lines;
+  }
+
+  function cardStar(ctx, cx, cy, r, filled) {
+    ctx.beginPath();
+    for (var i = 0; i < 10; i++) {
+      var radius = i % 2 ? r * 0.45 : r;
+      var angle = -Math.PI / 2 + i * Math.PI / 5;
+      var px = cx + Math.cos(angle) * radius;
+      var py = cy + Math.sin(angle) * radius;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    if (filled) ctx.fill(); else ctx.stroke();
+  }
+
+  // Same palette as the printed journal, so a card and a PDF page feel related.
+  function drawShareCard(canvas, shot, photo) {
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width;
+    var H = canvas.height;
+    var paper = "#F5EEE3", face = "#FFFCF7", ink = "#2B1B12", soft = "#584536";
+    var muted = "#7C6B5C", line = "#E2D8C9", clay = "#B1552F", wash = "#EDE2D1";
+    var pad = 108, right = W - pad, innerW = W - pad * 2;
+
+    ctx.fillStyle = paper;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = face;
+    roundRectPath(ctx, 40, 40, W - 80, H - 80, 30);
+    ctx.fill();
+    ctx.strokeStyle = line;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = ink;
+    ctx.font = "600 22px CremaCardSansSemi, Inter, sans-serif";
+    spacedText(ctx, "CREMA", pad, 118, 7);
+    ctx.fillStyle = muted;
+    ctx.font = "400 20px CremaCardSans, Inter, sans-serif";
+    spacedText(ctx, new Date(shot.brewed_at).toLocaleDateString(undefined, {
+      day: "2-digit", month: "short", year: "numeric"
+    }).toUpperCase(), right, 118, 4, "right");
+
+    ctx.strokeStyle = line;
+    ctx.beginPath();
+    ctx.moveTo(pad, 150);
+    ctx.lineTo(right, 150);
+    ctx.stroke();
+
+    var px = pad, py = 186, pw = innerW, ph = 540;
+    if (photo) {
+      ctx.save();
+      roundRectPath(ctx, px, py, pw, ph, 18);
+      ctx.clip();
+      var scale = Math.max(pw / photo.width, ph / photo.height);
+      var dw = photo.width * scale, dh = photo.height * scale;
+      ctx.drawImage(photo, px + (pw - dw) / 2, py + (ph - dh) / 2, dw, dh);
+      ctx.restore();
+      ctx.strokeStyle = line;
+      roundRectPath(ctx, px, py, pw, ph, 18);
+      ctx.stroke();
+    } else {
+      roundRectPath(ctx, px, py, pw, ph, 18);
+      ctx.fillStyle = wash;
+      ctx.fill();
+      ctx.save();
+      roundRectPath(ctx, px, py, pw, ph, 18);
+      ctx.clip();
+      var cx = px + pw / 2, cy = py + ph / 2;
+      ctx.strokeStyle = "rgba(43, 27, 18, 0.10)";
+      [70, 120, 170, 220].forEach(function (r) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+      ctx.fillStyle = "rgba(177, 85, 47, 0.6)";
+      ctx.beginPath();
+      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    ctx.fillStyle = ink;
+    ctx.font = "600 60px CremaCardSerif, Fraunces, Georgia, serif";
+    var nameLines = wrapCanvas(ctx, shot.bean_name || titleCase(shot.method) || "Coffee", innerW, 2);
+    var lineH = 66;
+    var nameBase = 870 - (nameLines.length - 1) * lineH;
+    nameLines.forEach(function (text, i) { ctx.fillText(text, pad, nameBase + i * lineH); });
+
+    var meta = [titleCase(shot.method)];
+    if (shot.bean_roaster) meta.push(shot.bean_roaster);
+    if (shot.grind) meta.push("grind " + shot.grind);
+    ctx.fillStyle = muted;
+    ctx.font = "400 20px CremaCardSans, Inter, sans-serif";
+    spacedText(ctx, meta.join("  ·  ").toUpperCase(), pad, 914, 3);
+
+    if (shot.rating) {
+      var starX = right - 5 * 33;
+      for (var s = 0; s < 5; s++) {
+        ctx.strokeStyle = clay;
+        ctx.fillStyle = clay;
+        ctx.lineWidth = 1.6;
+        cardStar(ctx, starX + s * 33 + 11, 903, 11, s < shot.rating);
+      }
+    }
+
+    ctx.strokeStyle = line;
+    ctx.beginPath();
+    ctx.moveTo(pad, 952);
+    ctx.lineTo(right, 952);
+    ctx.stroke();
+
+    var cells = [];
+    if (shot.dose_g) cells.push(["DOSE", num(shot.dose_g, 1) + " g"]);
+    if (shot.yield_g) cells.push(["YIELD", num(shot.yield_g, 1) + " g"]);
+    if (shot.time_s) cells.push(["TIME", shotTime(shot.time_s)]);
+    if (ratio(shot)) cells.push(["RATIO", ratio(shot)]);
+    // Same rule as the journal: a saved figure wins, otherwise the numbers imply it.
+    var extraction = shot.ey ? num(shot.ey, 1) : (shot.tds && shot.dose_g && shot.yield_g
+      ? "~" + num(shot.tds * shot.yield_g / shot.dose_g, 1) : null);
+    if (extraction) cells.push(["EXTRACTION", extraction + "%"]);
+    if (!cells.length) cells.push(["METHOD", titleCase(shot.method)]);
+    var cellW = innerW / cells.length;
+    var tight = cells.length > 4;
+    cells.forEach(function (cell, i) {
+      var x = pad + cellW * i;
+      ctx.fillStyle = muted;
+      ctx.font = "400 " + (tight ? 15 : 17) + "px CremaCardSans, Inter, sans-serif";
+      spacedText(ctx, cell[0], x, 1000, tight ? 2 : 3);
+      ctx.fillStyle = ink;
+      ctx.font = "600 " + (tight ? 40 : 46) + "px CremaCardSansSemi, Inter, sans-serif";
+      ctx.fillText(cell[1], x, 1056);
+    });
+
+    var taste = TASTE.filter(function (pair) { return shot[pair[0]]; });
+    if (taste.length) {
+      taste.forEach(function (pair, i) {
+        var y = 1096 + i * 30;
+        ctx.fillStyle = muted;
+        ctx.font = "400 16px CremaCardSans, Inter, sans-serif";
+        ctx.fillText(pair[1], pad, y + 5);
+        var trackX = pad + 150, trackW = 640;
+        ctx.fillStyle = "#E8DDCB";
+        roundRectPath(ctx, trackX, y - 3, trackW, 8, 4);
+        ctx.fill();
+        ctx.fillStyle = clay;
+        roundRectPath(ctx, trackX, y - 3, Math.max(8, trackW * shot[pair[0]] / 5), 8, 4);
+        ctx.fill();
+        ctx.fillStyle = ink;
+        ctx.font = "600 16px CremaCardSansSemi, Inter, sans-serif";
+        ctx.fillText(String(shot[pair[0]]), right - 24, y + 5);
+      });
+    } else if (shot.tasting_notes) {
+      // With no meters to fill the band, the quote sits in the middle of it.
+      ctx.fillStyle = soft;
+      ctx.font = "400 24px CremaCardSerifSoft, Georgia, serif";
+      var quote = wrapCanvas(ctx, "“" + shot.tasting_notes + "”", innerW, 2);
+      var quoteBaseline = 1167 - (quote.length - 1) * 17;
+      quote.forEach(function (text, i) {
+        ctx.fillText(text, pad, quoteBaseline + i * 34);
+      });
+    }
+
+    ctx.strokeStyle = line;
+    ctx.beginPath();
+    ctx.moveTo(pad, 1246);
+    ctx.lineTo(right, 1246);
+    ctx.stroke();
+    ctx.fillStyle = muted;
+    ctx.font = "400 16px CremaCardSans, Inter, sans-serif";
+    ctx.fillText(new Date(shot.brewed_at).toLocaleString(undefined, {
+      weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"
+    }), pad, 1282);
+    spacedText(ctx, (location.hostname || "crema").toUpperCase(), right, 1282, 3, "right");
+  }
+
+  async function openShareCard(shot) {
+    await loadCardFonts();
+    var photo = null;
+    if (shot.photo && shot.photo.url) {
+      photo = await new Promise(function (resolve) {
+        var img = new Image();
+        img.onload = function () { resolve(img); };
+        img.onerror = function () { resolve(null); };
+        img.src = shot.photo.url;
+      });
+    }
+
+    var fileName = "crema-" + (shot.bean_name || shot.method || "shot").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) +
+      "-" + String(shot.brewed_at || "").slice(0, 10) + ".png";
+
+    openModal({
+      title: "Share this shot",
+      subtitle: "A card for a chat or a story.",
+      body: '<div class="share-preview"><canvas id="share-canvas" width="1080" height="1350" aria-label="Preview of the share card"></canvas></div>',
+      footer: '<button class="btn btn-ghost" id="share-close">Close</button>' +
+              '<button class="btn btn-quiet" id="share-download" disabled>' + icon("download") + 'Download</button>' +
+              '<button class="btn btn-primary" id="share-send" hidden>' + icon("share") + 'Share</button>',
+      onMount: function () {
+        var canvas = $("#share-canvas");
+        drawShareCard(canvas, shot, photo);
+        $("#share-close").addEventListener("click", closeModal);
+
+        var download = $("#share-download");
+        var send = $("#share-send");
+
+        canvas.toBlob(function (blob) {
+          if (!blob) return;
+          download.disabled = false;
+          download.addEventListener("click", function () {
+            var url = URL.createObjectURL(blob);
+            var link = document.createElement("a");
+            link.href = url;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+          });
+          if (navigator.canShare && navigator.share) {
+            var file = new File([blob], fileName, { type: "image/png" });
+            if (navigator.canShare({ files: [file] })) {
+              send.hidden = false;
+              send.addEventListener("click", function () {
+                navigator.share({ files: [file], title: "Crema" }).catch(function () {});
+              });
+            }
+          }
+        }, "image/png");
       }
     });
   }
@@ -2324,7 +2627,9 @@
         (shot.notes ? '<div class="notes-block"><div class="k">Notes</div>' + esc(shot.notes) + '</div>' : "") +
         '<div class="shot-actions">' +
           '<a class="btn btn-ghost btn-sm" href="' + (shot.is_cafe ? "#/cafe/" : "#/log/") + shot.id + '">' + icon("edit") + 'Edit</a>' +
-          (shot.is_cafe ? "" : '<a class="btn btn-ghost btn-sm" href="#/log?from=' + shot.id + '">' + icon("repeat") + 'Brew again</a>') +
+          (shot.is_cafe ? "" :
+            '<a class="btn btn-ghost btn-sm" href="#/log?from=' + shot.id + '">' + icon("repeat") + 'Brew again</a>' +
+            '<button class="btn btn-ghost btn-sm" data-card="' + shot.id + '">' + icon("share") + 'Share card</button>') +
           '<button class="btn btn-ghost btn-sm" data-fav="' + shot.id + '">' + icon("star") + (shot.favorite ? (shot.is_cafe ? "Not again" : "Unfavourite") : (shot.is_cafe ? "Would go back" : "Favourite")) + '</button>' +
           '<button class="btn btn-danger btn-sm" data-del="' + shot.id + '">' + icon("trash") + 'Delete</button>' +
         '</div>' +
@@ -2375,6 +2680,14 @@
           toast("Entry deleted");
           viewHistory();
         } catch (err) { toast(err.message, "error"); }
+      });
+    });
+
+    $$("[data-card]").forEach(function (button) {
+      button.addEventListener("click", function (event) {
+        event.stopPropagation();
+        var shot = state.shots.filter(function (s) { return String(s.id) === String(button.dataset.card); })[0];
+        if (shot) openShareCard(shot);
       });
     });
   }
