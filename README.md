@@ -33,10 +33,12 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 ## Features
 
 - **Espresso, milk drinks, filter, cold brew.** Dose, yield, ratio, time, grind, temperature, pressure, pre-infusion, machine, grinder, basket.
+- **Extraction yield that does its own arithmetic.** Type the TDS and Crema works out extraction yield from TDS × yield ÷ dose, following the numbers as you edit them. A figure you type yourself wins until you clear the field. Shots logged before this existed show the implied number with a `~` in the shot and in the PDF journal.
 - **Brew timer with dial-in advice.** Pick a style — ristretto, single, double, lungo — and the target time, dose, and yield set themselves to match. Start it as the pump kicks in; stopping it fills in shot time. The notes underneath measure the shot against that style and suggest a grind change or a yield correction in plain words.
 - **Tasting notes that stay useful.** Rating, free-text notes, flavour tags, and five balance sliders (acidity, body, sweetness, bitterness, aftertaste).
 - **Bag stock.** Give a bag its size in grams and Crema works out what is left and roughly how many shots remain, using your average dose for that coffee. The dashboard points at the open bag that will go stale first.
 - **Café log.** A separate page for coffee you drank out: the place, what you ordered, the drink style, a photo, tasting notes, and whether you would go back. Café visits stay in the journal but never move your averages, dial-in advice, or brewing stats.
+- **Brew again.** The dashboard and every shot offer *Same again*: a new entry with the bean, dose, yield, grind, temperature, and machine already filled in from that shot, stamped with the current time. Everything stays editable before you save.
 - **Offline writes.** Log a shot with no signal; it is queued on the device and uploaded when Crema is reachable. A client id per entry keeps retries from logging it twice.
 - **Photos.** Attach one photo per shot — the cup, the bag, or the dial-in.
 - **Your own profile picture.** Upload it from settings; it appears in the sidebar and stays on your own disk.
@@ -44,6 +46,7 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 - **History and stats.** Search past shots, filter by method or bean, and see simple trends.
 - **Dial-in calculator.** Scale a recipe by dose or yield without leaving the page.
 - **Exports.** CSV, JSON, or a multi-page designed PDF journal with photos, recipes, tasting notes, balance meters, and a cellar table.
+- **Share card.** Any shot can be drawn as a 1080×1350 card — photo, recipe, rating, balance meters — matching the printed journal's palette. Download the PNG or send it straight to your phone's share sheet. It is rendered on the device; no image ever leaves it.
 - **Automatic backups.** Crema writes a consistent zip of the database and photos every night, keeps the last 14, and lets the owner download or trigger one from Settings. Point `rclone` at the folder to copy them into Google Drive.
 - **Accounts.** Each person gets a private journal. The owner account can require approval for new sign-ups.
 - **PWA.** Installable, mobile-first, with offline reading, a queue for new shots, and a five-item mobile bar with a More menu.
@@ -84,7 +87,7 @@ services:
       - ./data:/data
 ```
 
-Pin a version with `tavishjain2807/crema:1.2` (or `:1.2.2`) to avoid surprise upgrades.
+Pin a version with `tavishjain2807/crema:1.3` (or `:1.3.0`) to avoid surprise upgrades.
 
 ### Docker from source
 
