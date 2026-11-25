@@ -579,7 +579,13 @@ def _detail_table(shot, styles):
     add("Pressure", _num(shot.get("pressure_bar"), 1) + " bar" if shot.get("pressure_bar") else "")
     add("Pre-infusion", _shot_time(shot.get("preinfusion_s")) if shot.get("preinfusion_s") else "")
     add("TDS", _num(shot.get("tds"), 2) + "%" if shot.get("tds") else "")
-    add("Extraction", _num(shot.get("ey"), 1) + "%" if shot.get("ey") else "")
+    extraction = shot.get("ey")
+    if not extraction and shot.get("tds") and shot.get("dose_g") and shot.get("yield_g"):
+        try:
+            extraction = float(shot["tds"]) * float(shot["yield_g"]) / float(shot["dose_g"])
+        except (TypeError, ValueError, ZeroDivisionError):
+            extraction = None
+    add("Extraction", ("~" if not shot.get("ey") else "") + _num(extraction, 1) + "%" if extraction else "")
     add("Milk", (shot.get("milk_type") or "") + (" · " + _num(shot.get("milk_volume_ml"), 0) + " ml" if shot.get("milk_volume_ml") else ""))
     add("Machine", shot.get("machine"))
     add("Grinder", shot.get("grinder"))

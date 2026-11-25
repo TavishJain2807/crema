@@ -198,6 +198,11 @@ a:hover { color: var(--clay-deep); }
   color: var(--muted);
 }
 .field .hint { font-size: 12px; color: var(--muted); }
+.field .field-note {
+  font-size: 11px;
+  color: var(--clay-deep);
+  letter-spacing: .01em;
+}
 
 input[type="text"], input[type="email"], input[type="password"], input[type="number"],
 input[type="date"], input[type="datetime-local"], input[type="search"], select, textarea {

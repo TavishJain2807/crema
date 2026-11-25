@@ -1487,7 +1487,12 @@
                 field("pressure_bar", "Pressure", values.pressure, "bar", "0.1") +
                 field("preinfusion_s", "Pre-infusion", values.preinfusion, "s", "0.1") +
                 field("tds", "TDS", values.tds, "%", "0.01") +
-                field("ey", "Extraction yield", values.ey, "%", "0.1") +
+                '<div class="field"><label for="ey">Extraction yield <span style="text-transform:none;letter-spacing:0;font-weight:400">(%)</span></label>' +
+                  '<input type="text" inputmode="decimal" id="ey" name="ey"' +
+                    (values.ey !== null && values.ey !== undefined && values.ey !== "" ? ' value="' + esc(values.ey) + '"' : "") +
+                    ' placeholder="%">' +
+                  '<span class="field-note" id="ey-note" hidden></span>' +
+                '</div>' +
               '</div>' +
               '<div class="ratio-readout">' +
                 '<div><div class="num" id="ratio-out">—</div><div class="lbl">brew ratio</div></div>' +
@@ -1614,6 +1619,59 @@
       var input = $("#" + id);
       if (input) input.addEventListener("input", updateReadout);
     });
+
+    // Extraction yield follows from TDS, dose and yield: EY = TDS × yield ÷ dose.
+    // A typed value wins until it is cleared; clearing hands it back to the numbers.
+    var eyInput = $("#ey");
+    var eyNote = $("#ey-note");
+    var eyManual = Boolean(eyInput && eyInput.value.trim());
+
+    function derivedEy() {
+      var tds = parseFloat($("#tds").value);
+      var dose = parseFloat($("#dose_g").value);
+      var yieldG = parseFloat($("#yield_g").value);
+      if (!(tds > 0 && dose > 0 && yieldG > 0)) return null;
+      var ey = tds * yieldG / dose;
+      return ey > 0 && ey < 100 ? ey : null;
+    }
+
+    function updateEy() {
+      if (!eyInput) return;
+      var derived = derivedEy();
+      if (!derived) {
+        if (eyNote) eyNote.hidden = true;
+        return;
+      }
+      if (eyManual) {
+        if (eyNote) {
+          eyNote.hidden = false;
+          eyNote.textContent = "Your numbers imply " + derived.toFixed(1) + "%";
+        }
+        return;
+      }
+      eyInput.value = derived.toFixed(1);
+      if (eyNote) {
+        eyNote.hidden = false;
+        eyNote.textContent = "Calculated from TDS × yield ÷ dose";
+      }
+    }
+
+    if (eyInput) {
+      eyInput.addEventListener("input", function () {
+        eyManual = eyInput.value.trim() !== "";
+        if (!eyManual) updateEy();
+        else if (eyNote) {
+          var implied = derivedEy();
+          eyNote.hidden = !implied;
+          if (implied) eyNote.textContent = "Your numbers imply " + implied.toFixed(1) + "%";
+        }
+      });
+      ["tds", "dose_g", "yield_g"].forEach(function (id) {
+        var input = $("#" + id);
+        if (input) input.addEventListener("input", updateEy);
+      });
+      updateEy();
+    }
 
     function paintDialIn() {
       var panel = $("#dialin");
@@ -2183,6 +2241,9 @@
 
     var details = [];
     function add(label, value) { if (value !== null && value !== undefined && value !== "" && value !== "—") details.push('<div><div class="k">' + esc(label) + '</div><div class="v">' + esc(value) + '</div></div>'); }
+    // Older shots may hold TDS, dose and yield but no saved extraction figure.
+    var derivedEy = !shot.ey && shot.tds && shot.dose_g && shot.yield_g
+      ? shot.tds * shot.yield_g / shot.dose_g : null;
     if (shot.is_cafe) {
       add("Where", shot.cafe_name);
       add("Ordered", shot.drink_name);
@@ -2197,7 +2258,7 @@
     add("Pressure", shot.pressure_bar ? num(shot.pressure_bar, 1) + " bar" : "");
     add("Pre-infusion", shot.preinfusion_s ? shotTime(shot.preinfusion_s) : "");
     add("TDS", shot.tds ? num(shot.tds, 2) + "%" : "");
-    add("Extraction", shot.ey ? num(shot.ey, 1) + "%" : "");
+    add("Extraction", shot.ey ? num(shot.ey, 1) + "%" : (derivedEy ? "~" + num(derivedEy, 1) + "%" : ""));
     add("Milk", shot.milk_type ? shot.milk_type + (shot.milk_volume_ml ? " · " + num(shot.milk_volume_ml, 0) + "ml" : "") : "");
     add("Machine", shot.machine);
     add("Grinder", shot.grinder);
