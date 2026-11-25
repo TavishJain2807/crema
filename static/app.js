@@ -58,6 +58,7 @@
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.8 12.2h9.4L17.5 7"/><path d="M10.2 10.5v5.4M13.8 10.5v5.4"/></svg>',
     archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="4.5" rx="1.2"/><path d="M5.2 9v9.3a1.2 1.2 0 0 0 1.2 1.2h11.2a1.2 1.2 0 0 0 1.2-1.2V9"/><path d="M10 12.8h4"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7.5 10.8 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></svg>',
+    repeat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 8.2h11.8a1.2 1.2 0 0 1 1.2 1.2v3.4"/><path d="m8.6 5.2-2.6 3 2.6 3"/><path d="M17.5 15.8H5.7a1.2 1.2 0 0 1-1.2-1.2v-3.4"/><path d="m15.4 18.8 2.6-3-2.6-3"/></svg>',
     logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5H6.8A1.8 1.8 0 0 0 5 6.3v11.4a1.8 1.8 0 0 0 1.8 1.8h7.7"/><path d="M10 12h9.5M16 8.5l3.5 3.5L16 15.5"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><path d="m12 3.6 2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8L12 3.6Z"/></svg>',
@@ -1014,8 +1015,18 @@
 
   function parseHash() {
     var raw = (location.hash || "").replace(/^#\/?/, "");
+    var query = {};
+    var mark = raw.indexOf("?");
+    if (mark !== -1) {
+      raw.slice(mark + 1).split("&").forEach(function (pair) {
+        if (!pair) return;
+        var bits = pair.split("=");
+        query[decodeURIComponent(bits[0])] = decodeURIComponent(bits[1] || "");
+      });
+      raw = raw.slice(0, mark);
+    }
     var parts = raw.split("/");
-    return { name: parts[0] || "dashboard", id: parts[1] || null };
+    return { name: parts[0] || "dashboard", id: parts[1] || null, query: query };
   }
 
   function route() {
@@ -1057,7 +1068,7 @@
     Promise.resolve()
       .then(function () {
         if (parsed.name === "dashboard") return viewDashboard();
-        if (parsed.name === "log") return viewLog(parsed.id);
+        if (parsed.name === "log") return viewLog(parsed.id, parsed.query.from);
         if (parsed.name === "cafe") return viewCafe(parsed.id);
         if (parsed.name === "history") return viewHistory(parsed.id);
         if (parsed.name === "beans") return viewBeans();
@@ -1171,7 +1182,10 @@
           '<h2>' + greeting() + ', ' + esc(first) + '.</h2>' +
           '<p>' + heroCopy + '</p>' +
         '</div>' +
-        '<a class="btn btn-primary btn-lg" href="#/log">' + icon("plus") + 'Log a shot</a>' +
+        '<div class="hero-actions">' +
+          '<a class="btn btn-primary btn-lg" href="#/log">' + icon("plus") + 'Log a shot</a>' +
+          (last && !last.is_cafe ? '<a class="btn btn-again btn-lg" href="#/log?from=' + last.id + '">' + icon("repeat") + 'Same again</a>' : "") +
+        '</div>' +
       '</section>' +
 
       installBannerHtml() +
@@ -1341,7 +1355,7 @@
     return { value: function () { return rating; } };
   }
 
-  async function viewLog(id) {
+  async function viewLog(id, fromId) {
     var shot = null;
     if (id) {
       shot = state.shots.filter(function (s) { return String(s.id) === String(id); })[0];
@@ -1356,8 +1370,16 @@
     }
 
     var prefs = state.user.preferences || {};
-    var draft = !shot ? readDraft() : null;
-    var source = draft || shot;
+    // "Brew again" starts a new entry from an earlier shot. It ignores a saved
+    // draft on purpose: the draft belongs to whatever you were logging before.
+    var again = null;
+    if (!shot && fromId) {
+      again = state.shots.filter(function (s) { return String(s.id) === String(fromId); })[0];
+      if (!again) again = (await api("/api/shots/" + fromId)).shot;
+      if (again && again.is_cafe) again = null;
+    }
+    var draft = !shot && !again ? readDraft() : null;
+    var source = draft || again || shot;
     var isMilk = source ? MILK_METHODS.indexOf(source.method) !== -1 : false;
     var chosenTags = source && source.flavor_tags ? source.flavor_tags.slice() : [];
     var tagList = TAGS.slice();
@@ -1385,7 +1407,7 @@
       tasting: source ? source.tasting_notes : "",
       notes: source ? source.notes : "",
       bean_id: source ? source.bean_id : "",
-      brewed_at: source ? source.brewed_at : new Date().toISOString()
+      brewed_at: again ? new Date().toISOString() : (source ? source.brewed_at : new Date().toISOString())
     };
 
     var photoState = {
@@ -1403,6 +1425,10 @@
         '<span class="cafe-invite-copy"><strong>Out for coffee?</strong><span>Log a café visit — just the place, the drink, and how it tasted.</span></span>' +
         '<span class="cafe-invite-go">' + icon("chevron") + '</span>' +
       '</a>' : "") +
+      (!shot && again ? '<p class="again-note" role="status">' + icon("repeat") +
+        '<span>From your ' + esc(titleCase(again.method || "shot")) +
+        (again.bean_name ? " with " + esc(again.bean_name) : "") +
+        ' on ' + esc(fmtDateTime(again.brewed_at)) + ' — change anything before saving.</span></p>' : "") +
       '<form id="shot-form" novalidate>' +
         '<div class="log-grid">' +
           '<div class="section-stack">' +
@@ -2298,6 +2324,7 @@
         (shot.notes ? '<div class="notes-block"><div class="k">Notes</div>' + esc(shot.notes) + '</div>' : "") +
         '<div class="shot-actions">' +
           '<a class="btn btn-ghost btn-sm" href="' + (shot.is_cafe ? "#/cafe/" : "#/log/") + shot.id + '">' + icon("edit") + 'Edit</a>' +
+          (shot.is_cafe ? "" : '<a class="btn btn-ghost btn-sm" href="#/log?from=' + shot.id + '">' + icon("repeat") + 'Brew again</a>') +
           '<button class="btn btn-ghost btn-sm" data-fav="' + shot.id + '">' + icon("star") + (shot.favorite ? (shot.is_cafe ? "Not again" : "Unfavourite") : (shot.is_cafe ? "Would go back" : "Favourite")) + '</button>' +
           '<button class="btn btn-danger btn-sm" data-del="' + shot.id + '">' + icon("trash") + 'Delete</button>' +
         '</div>' +

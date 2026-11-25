@@ -529,6 +529,13 @@ input[type="datetime-local"], input[type="date"] { color-scheme: light; }
 .hero p { color: rgba(246, 236, 223, .64); max-width: 470px; font-size: 14.5px; }
 .hero .btn-primary { background: #c4693f; }
 .hero .btn-primary:hover { background: #ad5731; }
+.hero-actions { display: flex; flex-direction: column; gap: 10px; align-items: stretch; flex: none; }
+.hero .btn-again {
+  border: 1px solid rgba(246, 236, 223, .24);
+  background: rgba(246, 236, 223, .06);
+  color: #f6ecdf;
+}
+.hero .btn-again:hover { background: rgba(246, 236, 223, .13); border-color: rgba(246, 236, 223, .36); }
 .hero-rings { position: absolute; right: -90px; top: -110px; width: 340px; height: 340px; pointer-events: none; opacity: .55; }
 .hero-rings span { position: absolute; border-radius: 50%; border: 1px solid rgba(246, 236, 223, .13); }
 .hero-rings span:nth-child(1) { inset: 0; }
@@ -755,6 +762,21 @@ input[type="datetime-local"], input[type="date"] { color-scheme: light; }
 .cafe-note .sub { margin-bottom: 0; max-width: 88%; }
 
 .log-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr); gap: 20px; align-items: start; }
+.again-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--clay-wash);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.again-note svg { width: 16px; height: 16px; flex: none; color: var(--clay-deep); }
+
 .form-card { padding: 24px; }
 .form-card > h3 { font-family: var(--serif); font-size: 19px; font-weight: 500; letter-spacing: -.01em; margin-bottom: 4px; }
 .form-card > .sub { font-size: 12.5px; color: var(--muted); margin-bottom: 18px; }
@@ -1137,6 +1159,7 @@ input:disabled {
   .log-grid, .split, .settings-grid, .calc-grid { grid-template-columns: minmax(0, 1fr); }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero { flex-direction: column; align-items: flex-start; padding: 30px 26px; }
+  .hero-actions { flex-direction: row; flex-wrap: wrap; }
   .form-actions { bottom: calc(88px + env(safe-area-inset-bottom)); }
   .toast-root { bottom: calc(92px + env(safe-area-inset-bottom)); }
 }
