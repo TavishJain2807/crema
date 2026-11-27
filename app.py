@@ -11,6 +11,7 @@ import os
 import re
 import secrets
 import sqlite3
+import sys
 import threading
 import time
 import zipfile
@@ -33,6 +34,9 @@ DB_PATH = os.path.join(DATA_DIR, "crema.sqlite3")
 PHOTO_DIR = os.path.join(DATA_DIR, "photos")
 
 COOKIE_NAME = "crema_session"
+# Read-only token for things that poll us (Home Assistant). Stored hashed in
+# app_settings as "<user_id>:<sha256>", minted with --issue-read-token.
+READ_TOKEN_KEY = "api_read_token"
 SESSION_DAYS = 60
 MAX_BODY = 14 * 1024 * 1024
 MAX_PHOTO = 10 * 1024 * 1024
@@ -316,6 +320,24 @@ def current_user():
     return g.user
 
 
+def token_user():
+    """Resolve an Authorization: Bearer token to the user it was minted for."""
+    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
+        return None
+    stored = app_setting(READ_TOKEN_KEY)
+    user_id, _, digest = stored.partition(":")
+    if not digest or not secrets.compare_digest(digest, token_hash(token)):
+        return None
+    try:
+        return db().execute(
+            "SELECT * FROM users WHERE id = ? AND status = 'active'", (int(user_id),)
+        ).fetchone()
+    except ValueError:
+        return None
+
+
 def login_required(view):
     from functools import wraps
 
@@ -323,6 +345,25 @@ def login_required(view):
     def wrapped(*args, **kwargs):
         if current_user() is None:
             return fail("Please sign in", 401)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def read_access(view):
+    """Session cookie, or the read-only bearer token, for endpoints worth polling.
+
+    The token is scoped to one user and only opens the handful of endpoints
+    that carry this decorator — it cannot write anything.
+    """
+    from functools import wraps
+
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = current_user() or token_user()
+        if user is None:
+            return fail("Please sign in", 401)
+        g.user = user
         return view(*args, **kwargs)
 
     return wrapped
@@ -1341,7 +1382,7 @@ def delete_photo(shot_id: int):
 # ---------------------------------------------------------------- stats & export
 
 @app.get("/api/stats")
-@login_required
+@read_access
 def stats():
     user_id = current_user()["id"]
     conn = db()
@@ -1778,5 +1819,20 @@ def too_large(_error):
 
 
 if __name__ == "__main__":
+    if "--issue-read-token" in sys.argv:
+        try:
+            user_id = int(sys.argv[sys.argv.index("--issue-read-token") + 1])
+        except (IndexError, ValueError):
+            raise SystemExit("usage: python3 app.py --issue-read-token <user_id>")
+        ensure_db()
+        with app.app_context():
+            row = db().execute("SELECT id, email FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                raise SystemExit(f"No user with id {user_id}")
+            token = secrets.token_urlsafe(32)
+            set_app_setting(READ_TOKEN_KEY, f"{user_id}:{token_hash(token)}")
+            print(f"read token for {row['email'] or user_id}: {token}")
+        raise SystemExit(0)
+
     ensure_db()
     app.run(host="127.0.0.1", port=8787, debug=os.environ.get("CREMA_DEBUG") == "1")
