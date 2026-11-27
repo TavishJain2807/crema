@@ -12,13 +12,13 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_URL
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_TOKEN, DEFAULT_URL, DOMAIN
+from .const import CONF_TOKEN, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_URL, default=DEFAULT_URL): str,
+        vol.Required(CONF_URL): str,
         vol.Required(CONF_TOKEN): str,
     }
 )
