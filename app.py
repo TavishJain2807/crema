@@ -1440,6 +1440,10 @@ def stats():
         SHOT_SELECT + " WHERE s.user_id = ? AND s.is_cafe = 0 AND s.rating IS NOT NULL "
         "ORDER BY s.rating DESC, s.brewed_at DESC LIMIT 1", (user_id,)).fetchone()
 
+    last = conn.execute(
+        SHOT_SELECT + " WHERE s.user_id = ? ORDER BY s.brewed_at DESC, s.id DESC LIMIT 1",
+        (user_id,)).fetchone()
+
     return jsonify({
         "total_shots": total,
         "cafe_shots": cafe_total,
@@ -1454,6 +1458,7 @@ def stats():
         "top_tags": [{"tag": tag, "count": count} for tag, count in top_tags],
         "favorite_bean": dict(favorite_bean) if favorite_bean else None,
         "best_shot": shot_payload(best) if best else None,
+        "last_shot": shot_payload(last) if last else None,
     })
 
 
