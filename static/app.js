@@ -3011,7 +3011,7 @@
             '<div class="about-list">' +
               '<div><strong>Crema</strong> · a small coffee journal</div>' +
               '<div>Stored on this home server’s own drive, available to any device you sign in from.</div>' +
-              '<div>Version 1.5.0 · tokens you can manage yourself</div>' +
+              '<div>Version 1.4.1 · tokens you can manage yourself</div>' +
             '</div>' +
             '<div class="divider"></div>' +
             '<button class="btn btn-danger" id="sign-out">' + icon("logout") + 'Sign out</button>' +
