@@ -990,6 +990,13 @@ table.plain td:first-child { font-weight: 500; color: var(--ink); }
 .export-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .about-list { display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--muted); }
 .about-list strong { color: var(--ink-soft); font-weight: 500; }
+.token-reveal { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.token-reveal code {
+  flex: 1 1 240px; min-width: 0; padding: 11px 13px;
+  background: var(--cream); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+  color: var(--ink-soft); word-break: break-all; user-select: all;
+}
 
 /* ---------------------------------------------------------------- banners */
 

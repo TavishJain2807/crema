@@ -44,7 +44,7 @@ No ads, no tracking, no third-party services. Your data stays in a SQLite file o
 - **Your own profile picture.** Upload it from settings; it appears in the sidebar and stays on your own disk.
 - **Bean cellar.** Roaster, origin, process, varietal, roast level, roast date, notes, and archive support.
 - **History and stats.** Search past shots, filter by method or bean, and see simple trends.
-- **Home Assistant.** A read-only token lets a small custom integration poll your stats — total shots, this week, today, average rating, dose, yield and time, beans in stock, favourite bean, and the last shot as a timestamp sensor. See [`homeassistant/`](homeassistant/).
+- **Home Assistant.** Create a read-only token in Settings and a small custom integration polls your stats — total shots, this week, today, average rating, dose, yield and time, beans in stock, favourite bean, and the last shot as a timestamp sensor. Install it from [`crema-hacs`](https://github.com/TavishJain2807/crema-hacs).
 - **Dial-in calculator.** Scale a recipe by dose or yield without leaving the page.
 - **Exports.** CSV, JSON, or a multi-page designed PDF journal with photos, recipes, tasting notes, balance meters, and a cellar table.
 - **Share card.** Any shot can be drawn as a 1080×1350 card — photo, recipe, rating, balance meters — matching the printed journal's palette. Download the PNG or send it straight to your phone's share sheet. It is rendered on the device; no image ever leaves it.

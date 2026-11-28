@@ -37,6 +37,8 @@ COOKIE_NAME = "crema_session"
 # Read-only token for things that poll us (Home Assistant). Stored hashed in
 # app_settings as "<user_id>:<sha256>", minted with --issue-read-token.
 READ_TOKEN_KEY = "api_read_token"
+# One token per user, keyed by id, so a second account can have its own.
+READ_TOKEN_PREFIX = "read_token:"
 SESSION_DAYS = 60
 MAX_BODY = 14 * 1024 * 1024
 MAX_PHOTO = 10 * 1024 * 1024
@@ -320,22 +322,84 @@ def current_user():
     return g.user
 
 
+def read_token_slots() -> list[dict]:
+    """Every read token on this server, the old single slot included."""
+    rows = db().execute(
+        "SELECT key, value FROM app_settings WHERE key = ? OR key LIKE ?",
+        (READ_TOKEN_KEY, READ_TOKEN_PREFIX + "%"),
+    ).fetchall()
+    slots = []
+    for row in rows:
+        try:
+            state = json.loads(row["value"])
+            if not isinstance(state, dict):
+                raise ValueError
+        except (ValueError, TypeError):
+            owner, _, digest = (row["value"] or "").partition(":")
+            state = {"user_id": owner, "hash": digest}
+        try:
+            state["user_id"] = int(state.get("user_id"))
+        except (TypeError, ValueError):
+            continue
+        state["hash"] = str(state.get("hash") or "")
+        state["legacy"] = row["key"] == READ_TOKEN_KEY
+        if state["hash"]:
+            slots.append(state)
+    return slots
+
+
+def save_read_token(user_id: int, digest: str) -> str:
+    """Store a fresh token for one user and retire the old single slot."""
+    created = iso(utcnow())
+    set_app_setting(
+        f"{READ_TOKEN_PREFIX}{user_id}",
+        json.dumps({
+            "user_id": user_id,
+            "hash": digest,
+            "created_at": created,
+            "last_used_at": None,
+        }),
+    )
+    db().execute("DELETE FROM app_settings WHERE key = ?", (READ_TOKEN_KEY,))
+    db().commit()
+    return created
+
+
+def touch_read_token(state: dict) -> None:
+    """Remember when a token was last used — at most once an hour."""
+    now = utcnow()
+    last = state.get("last_used_at")
+    if last:
+        try:
+            if now - datetime.fromisoformat(str(last).replace("Z", "+00:00")) < timedelta(hours=1):
+                return
+        except ValueError:
+            pass
+    legacy = state.pop("legacy", False)
+    state["last_used_at"] = iso(now)
+    set_app_setting(f"{READ_TOKEN_PREFIX}{state['user_id']}", json.dumps(state))
+    if legacy:
+        db().execute("DELETE FROM app_settings WHERE key = ?", (READ_TOKEN_KEY,))
+        db().commit()
+
+
 def token_user():
     """Resolve an Authorization: Bearer token to the user it was minted for."""
     scheme, _, token = request.headers.get("Authorization", "").partition(" ")
     token = token.strip()
     if scheme.lower() != "bearer" or not token:
         return None
-    stored = app_setting(READ_TOKEN_KEY)
-    user_id, _, digest = stored.partition(":")
-    if not digest or not secrets.compare_digest(digest, token_hash(token)):
-        return None
-    try:
-        return db().execute(
-            "SELECT * FROM users WHERE id = ? AND status = 'active'", (int(user_id),)
+    digest = token_hash(token)
+    for state in read_token_slots():
+        if not secrets.compare_digest(state["hash"], digest):
+            continue
+        user = db().execute(
+            "SELECT * FROM users WHERE id = ? AND status = 'active'", (state["user_id"],)
         ).fetchone()
-    except ValueError:
-        return None
+        if user:
+            touch_read_token(state)
+        return user
+    return None
 
 
 def login_required(view):
@@ -890,6 +954,41 @@ def delete_avatar():
 
 
 # ---------------------------------------------------------------- admin
+
+@app.get("/api/settings/read-token")
+@login_required
+def read_token_status():
+    user_id = current_user()["id"]
+    for state in read_token_slots():
+        if state["user_id"] == user_id:
+            return jsonify({
+                "active": True,
+                "created_at": state.get("created_at"),
+                "last_used_at": state.get("last_used_at"),
+            })
+    return jsonify({"active": False})
+
+
+@app.post("/api/settings/read-token")
+@login_required
+def create_read_token():
+    token = secrets.token_urlsafe(32)
+    created = save_read_token(current_user()["id"], token_hash(token))
+    return jsonify({"token": token, "created_at": created})
+
+
+@app.delete("/api/settings/read-token")
+@login_required
+def revoke_read_token():
+    user_id = current_user()["id"]
+    conn = db()
+    conn.execute("DELETE FROM app_settings WHERE key = ?", (f"{READ_TOKEN_PREFIX}{user_id}",))
+    owner, _, _ = app_setting(READ_TOKEN_KEY).partition(":")
+    if owner.strip() == str(user_id):
+        conn.execute("DELETE FROM app_settings WHERE key = ?", (READ_TOKEN_KEY,))
+    conn.commit()
+    return jsonify({"active": False})
+
 
 @app.get("/api/admin/registration")
 @admin_required
@@ -1835,7 +1934,7 @@ if __name__ == "__main__":
             if not row:
                 raise SystemExit(f"No user with id {user_id}")
             token = secrets.token_urlsafe(32)
-            set_app_setting(READ_TOKEN_KEY, f"{user_id}:{token_hash(token)}")
+            save_read_token(user_id, token_hash(token))
             print(f"read token for {row['email'] or user_id}: {token}")
         raise SystemExit(0)
 

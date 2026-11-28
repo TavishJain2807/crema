@@ -2993,6 +2993,11 @@
           backupCard +
 
           '<section class="card card-pad">' +
+            '<div class="card-head"><div><h3>Home Assistant</h3><p>Read your stats from a dashboard.</p></div></div>' +
+            '<div id="ha-token-body"><p class="small muted">Checking…</p></div>' +
+          '</section>' +
+
+          '<section class="card card-pad">' +
             '<div class="card-head"><div><h3>Password</h3><p>Change the key to your journal.</p></div></div>' +
             '<form id="password-form" class="form-grid">' +
               '<div class="field span-2"><label for="current-password">Current password</label><input type="password" id="current-password" name="current_password" autocomplete="current-password" placeholder="The one you sign in with"></div>' +
@@ -3006,7 +3011,7 @@
             '<div class="about-list">' +
               '<div><strong>Crema</strong> · a small coffee journal</div>' +
               '<div>Stored on this home server’s own drive, available to any device you sign in from.</div>' +
-              '<div>Version 1.4.0 · your coffee, in Home Assistant</div>' +
+              '<div>Version 1.5.0 · tokens you can manage yourself</div>' +
             '</div>' +
             '<div class="divider"></div>' +
             '<button class="btn btn-danger" id="sign-out">' + icon("logout") + 'Sign out</button>' +
@@ -3119,6 +3124,8 @@
       var ok = await confirmDialog("Sign out?", "You can sign back in at any time. Your journal will be waiting.");
       if (ok) signOut();
     });
+
+    wireHomeAssistant();
 
     if (user.admin) {
       var listEl = $("#pending-list");
@@ -3272,6 +3279,111 @@
         }
       });
     });
+  }
+
+  // -------------------------------------------------------- home assistant
+
+  function wireHomeAssistant() {
+    var body = $("#ha-token-body");
+    if (!body) return;
+
+    function when(value) {
+      if (!value) return "";
+      var then = new Date(value);
+      if (isNaN(then.getTime())) return "";
+      var mins = Math.round((Date.now() - then.getTime()) / 60000);
+      if (mins < 1) return "just now";
+      if (mins < 60) return mins + (mins === 1 ? " minute ago" : " minutes ago");
+      var hours = Math.round(mins / 60);
+      if (hours < 24) return hours + (hours === 1 ? " hour ago" : " hours ago");
+      var days = Math.round(hours / 24);
+      if (days < 30) return days + (days === 1 ? " day ago" : " days ago");
+      return then.toLocaleDateString();
+    }
+
+    function paint(status) {
+      if (status.active) {
+        body.innerHTML =
+          '<p class="small" style="margin-bottom:6px"><strong>Token active.</strong> ' +
+            (status.created_at ? "Created " + esc(when(status.created_at)) + ". " : "") +
+            (status.last_used_at ? "Last used " + esc(when(status.last_used_at)) + "." : "Not used yet.") +
+          '</p>' +
+          '<p class="small muted" style="margin-bottom:14px">Home Assistant polls it every five minutes and can read your stats — nothing else.</p>' +
+          '<div class="export-row">' +
+            '<button class="btn btn-ghost" id="ha-replace">' + icon("repeat") + 'Replace token</button>' +
+            '<button class="btn btn-ghost" id="ha-revoke">' + icon("trash") + 'Revoke</button>' +
+          '</div>';
+        $("#ha-replace").addEventListener("click", create);
+        $("#ha-revoke").addEventListener("click", revoke);
+        return;
+      }
+      body.innerHTML =
+        '<p class="small muted" style="margin-bottom:14px">No token yet. Create one, then paste it into the Crema integration in Home Assistant.</p>' +
+        '<button class="btn btn-primary" id="ha-create">' + icon("plus") + 'Create token</button>';
+      $("#ha-create").addEventListener("click", create);
+    }
+
+    function showToken(token) {
+      body.innerHTML =
+        '<p class="small" style="margin-bottom:8px"><strong>Copy this now.</strong> It is shown once and never again.</p>' +
+        '<div class="token-reveal">' +
+          '<code id="ha-token-value">' + esc(token) + '</code>' +
+          '<button class="btn btn-ghost" id="ha-copy">' + icon("check") + 'Copy</button>' +
+        '</div>' +
+        '<p class="small muted" style="margin-top:12px">In Home Assistant: Settings → Devices &amp; services → Add integration → Crema, then paste this with the address you open Crema at.</p>' +
+        '<div class="export-row" style="margin-top:14px"><button class="btn btn-ghost" id="ha-done">Done</button></div>';
+      $("#ha-copy").addEventListener("click", async function () {
+        try {
+          await navigator.clipboard.writeText(token);
+          toast("Token copied");
+        } catch (err) {
+          var range = document.createRange();
+          range.selectNodeContents($("#ha-token-value"));
+          var selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          toast("Press ⌘C to copy", "error");
+        }
+      });
+      $("#ha-done").addEventListener("click", load);
+    }
+
+    async function load() {
+      try {
+        paint(await api("/api/settings/read-token"));
+      } catch (err) {
+        body.innerHTML = '<p class="small muted">Could not read the Home Assistant settings.</p>';
+      }
+    }
+
+    async function create(event) {
+      var button = event.currentTarget;
+      busy(button, true);
+      try {
+        var result = await api("/api/settings/read-token", { method: "POST" });
+        showToken(result.token);
+        toast("Token created");
+      } catch (err) {
+        busy(button, false);
+        toast(err.message, "error");
+      }
+    }
+
+    async function revoke(event) {
+      var button = event.currentTarget;
+      var ok = await confirmDialog("Revoke the token?", "Home Assistant will stop updating until you add a new one.");
+      if (!ok) return;
+      busy(button, true);
+      try {
+        paint(await api("/api/settings/read-token", { method: "DELETE" }));
+        toast("Token revoked");
+      } catch (err) {
+        busy(button, false);
+        toast(err.message, "error");
+      }
+    }
+
+    load();
   }
 
   function openBeanModal(bean, onSaved) {
